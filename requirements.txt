@@ -8,6 +8,7 @@ soundfile
 
 # Live audio capture
 sounddevice
+soundcard
 
 # AI/audio inference
 torch
