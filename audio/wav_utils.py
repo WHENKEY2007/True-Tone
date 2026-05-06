@@ -1,50 +1,111 @@
-"""
-WAV file utilities for True-Tone.
-Handles reading, writing, and processing WAV audio files.
-"""
+from __future__ import annotations
 
-import wave
-import struct
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+from scipy.signal import resample_poly
+
+TARGET_SAMPLE_RATE = 16000
+
+
+@dataclass(frozen=True)
+class AudioData:
+    samples: np.ndarray
+    sample_rate: int
+    path: Path | None = None
+
+
+def _to_mono(samples: np.ndarray) -> np.ndarray:
+    samples = np.asarray(samples, dtype=np.float32)
+    if samples.ndim == 2:
+        return np.mean(samples, axis=1)
+    return samples.reshape(-1)
+
+
+def _normalize(samples: np.ndarray) -> np.ndarray:
+    samples = np.asarray(samples, dtype=np.float32)
+    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+    if peak == 0.0:
+        return samples
+    return samples / max(peak, 1.0)
+
+
+def _resample(samples: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
+    if source_rate == target_rate:
+        return samples.astype(np.float32)
+    gcd = np.gcd(source_rate, target_rate)
+    up = target_rate // gcd
+    down = source_rate // gcd
+    return resample_poly(samples, up, down).astype(np.float32)
+
+
+def load_wav(
+    filename: str | Path,
+    target_sample_rate: int = TARGET_SAMPLE_RATE,
+    normalize: bool = True,
+) -> AudioData:
+    """Load a WAV/audio file as mono float32 samples at the target sample rate."""
+    path = Path(filename)
+    samples, sample_rate = sf.read(path, always_2d=False, dtype="float32")
+    samples = _to_mono(samples)
+    samples = _resample(samples, sample_rate, target_sample_rate)
+    if normalize:
+        samples = _normalize(samples)
+    return AudioData(samples=samples.astype(np.float32), sample_rate=target_sample_rate, path=path)
+
+
+def save_wav(filename: str | Path, samples: np.ndarray, sample_rate: int = TARGET_SAMPLE_RATE) -> Path:
+    """Save mono float audio to a WAV file."""
+    path = Path(filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(path, np.asarray(samples, dtype=np.float32), sample_rate)
+    return path
+
+
+def chunk_audio(samples: np.ndarray, sample_rate: int, chunk_seconds: float = 3.0) -> list[np.ndarray]:
+    """Split audio into fixed-size chunks, padding the final chunk with silence."""
+    chunk_size = int(sample_rate * chunk_seconds)
+    if chunk_size <= 0:
+        raise ValueError("chunk_seconds must be positive")
+
+    samples = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if samples.size == 0:
+        return [np.zeros(chunk_size, dtype=np.float32)]
+
+    chunks = []
+    for start in range(0, samples.size, chunk_size):
+        chunk = samples[start : start + chunk_size]
+        if chunk.size < chunk_size:
+            chunk = np.pad(chunk, (0, chunk_size - chunk.size))
+        chunks.append(chunk.astype(np.float32))
+    return chunks
 
 
 class WAVUtils:
-    """Utility class for WAV file operations."""
-    
+    """Backwards-compatible wrapper around module-level WAV helpers."""
+
     @staticmethod
-    def write_wav(filename, audio_data, sample_rate=44100, channels=2):
-        """
-        Write audio data to a WAV file.
-        
-        Args:
-            filename: Output WAV file path
-            audio_data: Audio data to write
-            sample_rate: Sample rate in Hz
-            channels: Number of audio channels
-        """
-        pass
-    
+    def write_wav(filename, audio_data, sample_rate=TARGET_SAMPLE_RATE, channels=1):
+        del channels
+        return save_wav(filename, audio_data, sample_rate)
+
     @staticmethod
     def read_wav(filename):
-        """
-        Read audio data from a WAV file.
-        
-        Args:
-            filename: Input WAV file path
-            
-        Returns:
-            Tuple of (audio_data, sample_rate, channels)
-        """
-        pass
-    
+        audio = load_wav(filename)
+        return audio.samples, audio.sample_rate, 1
+
     @staticmethod
     def get_wav_info(filename):
-        """
-        Get information about a WAV file.
-        
-        Args:
-            filename: WAV file path
-            
-        Returns:
-            Dictionary with WAV file information
-        """
-        pass
+        path = Path(filename)
+        info = sf.info(path)
+        return {
+            "path": str(path),
+            "sample_rate": info.samplerate,
+            "channels": info.channels,
+            "duration": info.duration,
+            "frames": info.frames,
+            "format": info.format,
+            "subtype": info.subtype,
+        }

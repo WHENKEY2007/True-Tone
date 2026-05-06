@@ -1,2 +1,5 @@
 test_chunks/
 test_system_chunks/
+__pycache__/
+*.py[cod]
+test_system_chunks/
