@@ -12,7 +12,7 @@ from transformers import pipeline
 
 from audio.wav_utils import TARGET_SAMPLE_RATE, chunk_audio, load_wav
 
-DEFAULT_MODEL_ID = "Hemgg/Deepfake-audio-detection"
+DEFAULT_MODEL_ID = "DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2"
 FAKE_LABEL_HINTS = ("fake", "spoof", "synthetic", "deepfake", "ai", "generated", "1")
 REAL_LABEL_HINTS = ("real", "bonafide", "bona-fide", "human", "genuine", "authentic", "0")
 
@@ -56,10 +56,12 @@ class AudioDeepfakeDetector:
         sample_rate: int = TARGET_SAMPLE_RATE,
         chunk_seconds: float = 3.0,
         local_files_only: bool = False,
+        min_rms: float = 0.002,
     ):
         self.model_id = model_id or os.getenv("TRUE_TONE_MODEL_ID", DEFAULT_MODEL_ID)
         self.sample_rate = sample_rate
         self.chunk_seconds = chunk_seconds
+        self.min_rms = min_rms
         self.classifier = pipeline(
             task="audio-classification",
             model=self.model_id,
@@ -74,6 +76,12 @@ class AudioDeepfakeDetector:
         raw_outputs = []
 
         for chunk in chunks:
+            rms = float(np.sqrt(np.mean(np.square(chunk)))) if chunk.size else 0.0
+            if rms < self.min_rms:
+                chunk_scores.append(0.0)
+                raw_outputs.append([{"label": "silence", "score": 1.0}])
+                continue
+
             output = self.classifier({"array": chunk, "sampling_rate": self.sample_rate}, top_k=None)
             labels = list(output)
             raw_outputs.append(labels)
@@ -99,12 +107,14 @@ def main() -> None:
     parser.add_argument("--model-id", default=None, help=f"Hugging Face model id. Default: {DEFAULT_MODEL_ID}")
     parser.add_argument("--chunk-seconds", type=float, default=3.0, help="Seconds per inference chunk.")
     parser.add_argument("--local-files-only", action="store_true", help="Use only cached model files.")
+    parser.add_argument("--min-rms", type=float, default=0.002, help="Treat quieter chunks as silence.")
     args = parser.parse_args()
 
     detector = AudioDeepfakeDetector(
         model_id=args.model_id,
         chunk_seconds=args.chunk_seconds,
         local_files_only=args.local_files_only,
+        min_rms=args.min_rms,
     )
     result = detector.predict_file(args.audio_file)
 

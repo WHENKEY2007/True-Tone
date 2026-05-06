@@ -90,6 +90,11 @@ After the model has downloaded once, run from the local Hugging Face cache:
 
 The detector prints an `AI probability` from `0.0` to `1.0` and the per-chunk scores used to calculate it.
 
+Compare several candidate detector models on the same audio file:
+```bash
+.\.venv\Scripts\python.exe tools\compare_models.py test_chunks\your_sample.wav
+```
+
 ## Requirements
 
 See `requirements.txt` for a complete list of dependencies.
