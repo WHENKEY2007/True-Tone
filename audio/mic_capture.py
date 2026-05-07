@@ -49,11 +49,41 @@ def _capture_sample_rate(device: int | None) -> int:
 
 def _resample_to_target(audio: np.ndarray, source_rate: int) -> np.ndarray:
     if source_rate == SAMPLE_RATE:
-        return audio
+        return audio.astype(np.float32)
     gcd = np.gcd(source_rate, SAMPLE_RATE)
     up = SAMPLE_RATE // gcd
     down = source_rate // gcd
     return resample_poly(audio, up, down, axis=0).astype(np.float32)
+
+
+class MicrophoneCapture:
+    """Capture microphone input as 16 kHz mono float32 chunks."""
+
+    def __init__(self, device: int | None = None, chunk_duration: int = CHUNK_DURATION):
+        self.device = device
+        self.chunk_duration = chunk_duration
+        self.capture_rate = _capture_sample_rate(device)
+
+    def start(self) -> None:
+        if self.device is not None:
+            device_info = sd.query_devices(self.device)
+            print(f"Using input device {self.device}: {device_info['name']}")
+        else:
+            print(f"Using default input device: {sd.query_devices(sd.default.device[0])['name']}")
+
+    def stop(self) -> None:
+        pass
+
+    def read(self) -> np.ndarray:
+        audio = sd.rec(
+            int(self.chunk_duration * self.capture_rate),
+            samplerate=self.capture_rate,
+            channels=1,
+            dtype="float32",
+            device=self.device,
+        )
+        sd.wait()
+        return np.squeeze(_resample_to_target(audio, self.capture_rate)).astype(np.float32)
 
 
 def record_chunk(chunk_number: int, device: int | None = None) -> Path:

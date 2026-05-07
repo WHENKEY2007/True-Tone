@@ -95,6 +95,25 @@ Compare several candidate detector models on the same audio file:
 .\.venv\Scripts\python.exe tools\compare_models.py test_chunks\your_sample.wav
 ```
 
+## Day 3: Live Terminal Pipeline
+
+Run live microphone capture through speech gating and the detector:
+```bash
+.\.venv\Scripts\python.exe live_pipeline.py --source mic --device 1
+```
+
+Run system-audio loopback through the same pipeline:
+```bash
+.\.venv\Scripts\python.exe live_pipeline.py --source system --device 0
+```
+
+Verify the wiring without live audio hardware by replaying a saved WAV file:
+```bash
+.\.venv\Scripts\python.exe live_pipeline.py --source-file test_chunks\your_sample.wav --chunks 3 --local-files-only
+```
+
+The Day 3 milestone is met when the terminal prints one line per chunk with `ai_probability`, `rms`, `peak`, speech/silence state, and latency.
+
 ## Requirements
 
 See `requirements.txt` for a complete list of dependencies.
