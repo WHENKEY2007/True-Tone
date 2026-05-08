@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 import threading
 import time
 
@@ -31,6 +31,12 @@ class PipelineScore:
     peak: float
     is_speech: bool
     latency_seconds: float
+
+
+@dataclass(frozen=True)
+class WorkerError:
+    worker: str
+    error: Exception
 
 
 class FileReplayCapture:
@@ -69,7 +75,7 @@ class LiveDetectionPipeline:
         self.speech_gate = speech_gate
         self.max_chunks = max_chunks
         self.audio_queue: Queue[AudioChunk | None] = Queue(maxsize=3)
-        self.score_queue: Queue[PipelineScore | None] = Queue()
+        self.score_queue: Queue[PipelineScore | WorkerError | None] = Queue()
         self.stop_event = threading.Event()
 
     def run_terminal(self) -> None:
@@ -85,6 +91,9 @@ class LiveDetectionPipeline:
                 score = self.score_queue.get()
                 if score is None:
                     break
+                if isinstance(score, WorkerError):
+                    self.stop_event.set()
+                    raise RuntimeError(f"{score.worker} worker failed") from score.error
                 label = "speech" if score.is_speech else "silence"
                 print(
                     f"chunk={score.index:03d} "
@@ -108,10 +117,12 @@ class LiveDetectionPipeline:
                 if self.max_chunks is not None and chunk_index > self.max_chunks:
                     break
                 samples = self.capture.read()
-                self.audio_queue.put(AudioChunk(chunk_index, samples, time.time()))
+                self._put_audio(AudioChunk(chunk_index, samples, time.time()))
                 chunk_index += 1
+        except Exception as exc:
+            self._put_worker_error("capture", exc)
         finally:
-            self.audio_queue.put(None)
+            self._put_audio(None)
 
     def _inference_loop(self) -> None:
         try:
@@ -139,8 +150,22 @@ class LiveDetectionPipeline:
                         latency_seconds=time.time() - chunk.captured_at,
                     )
                 )
+        except Exception as exc:
+            self._put_worker_error("inference", exc)
         finally:
             self.score_queue.put(None)
+
+    def _put_audio(self, item: AudioChunk | None) -> None:
+        while not self.stop_event.is_set():
+            try:
+                self.audio_queue.put(item, timeout=0.2)
+                return
+            except Full:
+                continue
+
+    def _put_worker_error(self, worker: str, error: Exception) -> None:
+        self.stop_event.set()
+        self.score_queue.put(WorkerError(worker, error))
 
 
 def _build_capture(args):
