@@ -3,7 +3,6 @@ True-Tone: Audio Processing Application
 Main entry point for the True-Tone audio processing system.
 """
 
-import sys
 from ui.dashboard import Dashboard
 
 

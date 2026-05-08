@@ -3,3 +3,5 @@ test_system_chunks/
 __pycache__/
 *.py[cod]
 test_system_chunks/
+.cache/
+hf_eval_samples/

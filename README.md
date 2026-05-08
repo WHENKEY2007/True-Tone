@@ -49,9 +49,9 @@ pip install -r requirements.txt
 
 ## Usage
 
-Run the application:
+Run the Streamlit dashboard:
 ```bash
-python app.py
+.\.venv\Scripts\streamlit.exe run app.py
 ```
 
 ## Day 1: Capture Checks
@@ -113,6 +113,15 @@ Verify the wiring without live audio hardware by replaying a saved WAV file:
 ```
 
 The Day 3 milestone is met when the terminal prints one line per chunk with `ai_probability`, `rms`, `peak`, speech/silence state, and latency.
+
+## Day 4: Streamlit Dashboard
+
+Run the product dashboard:
+```bash
+.\.venv\Scripts\streamlit.exe run app.py
+```
+
+The dashboard supports uploaded audio replay, microphone capture, and system-audio loopback. It shows the current AI probability, signal stats, per-chunk latency, a rolling history graph, and warning banners when the score crosses the configured threshold.
 
 ## Requirements
 
