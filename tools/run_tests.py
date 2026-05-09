@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from inference.detector import AudioDeepfakeDetector
+from inference.detector import AudioDeepfakeDetector, _parse_weights, _resolve_model_ids
 
 SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
 
@@ -59,15 +59,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--model-id", default=None,
-        help="Hugging Face model ID (default: project default).",
+        help="HF model ID, or comma-separated IDs for an ensemble.",
+    )
+    parser.add_argument(
+        "--model-weights", default=None,
+        help="Comma-separated model branch weights.",
     )
     parser.add_argument(
         "--local-files-only", action="store_true",
         help="Use cached model files only.",
     )
     parser.add_argument(
-        "--threshold", type=float, default=0.65,
-        help="AI detection threshold for pass/fail (default: 0.65).",
+        "--threshold", type=float, default=0.20,
+        help="AI detection threshold for pass/fail (default: 0.20, tuned on streaming online samples).",
     )
     parser.add_argument(
         "--chunk-seconds", type=float, default=3.0,
@@ -95,6 +99,9 @@ def main() -> None:
         model_id=args.model_id,
         chunk_seconds=args.chunk_seconds,
         local_files_only=args.local_files_only,
+        model_weights=_parse_weights(args.model_weights, len(_resolve_model_ids(args.model_id)))
+        if args.model_weights
+        else None,
     )
 
     print()

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from inference.detector import AudioDeepfakeDetector
+from inference.detector import AudioDeepfakeDetector, _parse_weights, _resolve_model_ids
 
 SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
 AI_LABEL_HINTS = ("ai", "fake", "synthetic", "generated", "deepfake", "elevenlabs", "clone")
@@ -46,6 +46,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Find the optimal AI detection threshold.")
     parser.add_argument("directory", help="Directory containing labeled audio files.")
     parser.add_argument("--model-id", default=None, help="Hugging Face model ID.")
+    parser.add_argument("--model-weights", default=None, help="Comma-separated model branch weights.")
     parser.add_argument("--local-files-only", action="store_true")
     args = parser.parse_args()
 
@@ -59,6 +60,9 @@ def main() -> None:
     detector = AudioDeepfakeDetector(
         model_id=args.model_id,
         local_files_only=args.local_files_only,
+        model_weights=_parse_weights(args.model_weights, len(_resolve_model_ids(args.model_id)))
+        if args.model_weights
+        else None,
     )
 
     scored = []

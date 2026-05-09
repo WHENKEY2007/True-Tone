@@ -20,6 +20,9 @@ This repo now includes:
 - `pipeline/temporal.py`: rolling session memory with EMA smoothing, weighted rolling averages, trend, uncertainty, anomaly score, confidence decay during silence, and hysteresis states.
 - `inference/detector.py`: fuses the existing neural detector score with handcrafted behavioral evidence while preserving raw model outputs.
 - `pipeline/orchestrator.py` and `live_pipeline.py`: publish stabilized session probability while retaining raw chunk probability for debugging.
+- `tools/tune_streaming_threshold.py`: tunes alert thresholds on rolling-window stabilized scores.
+- `tools/download_online_samples.py`: downloads a bounded balanced public real/fake test subset.
+- `inference/detector.py`: supports comma-separated Hugging Face model IDs and branch weights for weighted ensemble inference.
 
 ## Target Architecture
 
@@ -69,6 +72,33 @@ score = 0.30 * AASIST
       + 0.08 * DSP/behavioral score
 ```
 
+The current implementation supports this kind of weighted neural ensemble for Hugging Face audio-classification branches:
+
+```bash
+venv/bin/python tools/evaluate_streaming.py test_audio/online_samples \
+  --model-id DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2,Vansh180/deepfake-audio-wav2vec2 \
+  --model-weights 0.6,0.4
+```
+
+Or set it through environment variables:
+
+```bash
+export TRUE_TONE_MODEL_IDS=DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2,Vansh180/deepfake-audio-wav2vec2
+export TRUE_TONE_MODEL_WEIGHTS=0.6,0.4
+```
+
+Do not make a second model the default until it has been downloaded, evaluated, and threshold-tuned locally. Good first candidates are `Vansh180/deepfake-audio-wav2vec2` and `Hemgg/Deepfake-audio-detection` because they are roughly the same size as the current branch; the large XLSR branches are around 1.26 GB each.
+
+Initial measured ensemble result on `test_audio/online_samples`:
+
+```text
+Single current model, threshold 0.20: 75.0% accuracy, FP=5, FN=5
+Current + Vansh180, weights 0.6/0.4, threshold 0.20: 77.5% accuracy, FP=5, FN=4
+Current + Vansh180, weights 0.6/0.4, threshold 0.15: 77.5% accuracy, FP=6, FN=3
+```
+
+The ensemble improves recall slightly but roughly doubles CPU inference time on this machine. Use it for accuracy-focused testing, then decide whether the latency tradeoff is acceptable for live mode.
+
 Then move to stacking:
 
 - Inputs: each model logit, model uncertainty, SNR estimate, VAD ratio, codec/bandwidth features, behavioral features, recent temporal stats.
@@ -90,6 +120,12 @@ Use overlapping windows:
   - `0.65-1.0`: likely synthetic.
 - Require repeated evidence before entering `likely_synthetic`.
 - Decay confidence during silence instead of resetting instantly.
+
+The current single-model baseline under-scores many fake examples, so the practical alert threshold is tuned separately from the ideal confidence bands. On the initial 40-file online sample set, a `0.20` alert threshold gave the best measured accuracy plateau. Re-tune this threshold whenever the model mix or dataset changes:
+
+```bash
+venv/bin/python tools/tune_streaming_threshold.py test_audio/online_samples --local-files-only
+```
 
 ## Compression and Noise Robustness
 

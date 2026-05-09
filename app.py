@@ -34,7 +34,7 @@ def run_terminal(args) -> None:
     from audio.system_capture import SystemAudioCapture
     from audio.wav_loader import WAVFileReplay
     from audio.vad import EnergySpeechGate
-    from inference.detector import AudioDeepfakeDetector
+    from inference.detector import AudioDeepfakeDetector, _parse_weights, _resolve_model_ids
     from pipeline.orchestrator import PipelineOrchestrator, PipelineState
 
     import time
@@ -65,6 +65,9 @@ def run_terminal(args) -> None:
         model_id=args.model_id if args.model_id else None,
         chunk_seconds=args.chunk_seconds,
         local_files_only=args.local_files_only,
+        model_weights=_parse_weights(args.model_weights, len(_resolve_model_ids(args.model_id)))
+        if args.model_weights
+        else None,
     )
     gate = EnergySpeechGate(min_rms=args.min_rms, min_peak=args.min_peak)
 
@@ -88,7 +91,7 @@ def run_terminal(args) -> None:
                 for score in scores[last_count:]:
                     label = "🗣️ speech" if score.is_speech else "🔇 silence"
                     prob_bar = "█" * int(score.ai_probability * 20) + "░" * (20 - int(score.ai_probability * 20))
-                    warning = " ⚠️  AI DETECTED" if score.ai_probability >= 0.65 else ""
+                    warning = " ⚠️  AI DETECTED" if score.ai_probability >= args.threshold else ""
                     print(
                         f"  [{score.index:03d}] {label}  "
                         f"|{prob_bar}| {score.ai_probability:.1%}  "
@@ -127,7 +130,7 @@ def run_terminal(args) -> None:
 
 def run_file_analysis(args) -> None:
     """Analyze a single audio file and print results."""
-    from inference.detector import AudioDeepfakeDetector
+    from inference.detector import AudioDeepfakeDetector, _parse_weights, _resolve_model_ids
 
     if not args.source_file:
         print("Error: --source-file is required in file mode.")
@@ -136,6 +139,9 @@ def run_file_analysis(args) -> None:
     detector = AudioDeepfakeDetector(
         model_id=args.model_id if args.model_id else None,
         local_files_only=args.local_files_only,
+        model_weights=_parse_weights(args.model_weights, len(_resolve_model_ids(args.model_id)))
+        if args.model_weights
+        else None,
     )
 
     result = detector.predict_file(args.source_file)
@@ -178,10 +184,17 @@ Examples:
     parser.add_argument("--overlap", type=float, default=2.0)
     parser.add_argument("--gain", type=float, default=0.0)
     parser.add_argument("--model-id", default=None)
+    parser.add_argument("--model-weights", default=None, help="Comma-separated model branch weights.")
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--min-rms", type=float, default=0.002)
     parser.add_argument("--min-peak", type=float, default=0.01)
     parser.add_argument("--smoothing", type=int, default=5)
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.20,
+        help="Terminal alert threshold (default: 0.20, tuned on streaming online samples).",
+    )
     args = parser.parse_args()
 
     if args.mode == "dashboard":

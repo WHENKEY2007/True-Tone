@@ -35,7 +35,7 @@ except ImportError:
 
 # ── Constants ────────────────────────────────────────────────────────
 
-DEFAULT_THRESHOLD = 0.65
+DEFAULT_THRESHOLD = 0.20
 POLL_INTERVAL = 0.8  # seconds between UI refreshes
 
 
@@ -307,9 +307,15 @@ def _render_streamlit_app():
         )
 
         model_id = st.text_input(
-            "Model ID (optional)",
+            "Model IDs (optional)",
             value="",
-            help="Hugging Face model ID. Leave blank for default.",
+            help="Hugging Face model ID, or comma-separated IDs for an ensemble. Leave blank for default.",
+        )
+
+        model_weights = st.text_input(
+            "Model weights (optional)",
+            value="",
+            help="Comma-separated weights matching Model IDs, for example 0.7,0.3.",
         )
 
         uploaded_file = None
@@ -335,6 +341,7 @@ def _render_streamlit_app():
                     device=device,
                     overlap=overlap,
                     model_id=model_id if model_id.strip() else None,
+                    model_weights=model_weights if model_weights.strip() else None,
                     smoothing=smoothing,
                     uploaded_file=uploaded_file,
                 )
@@ -487,10 +494,16 @@ def _render_idle_state():
 
 
 @st.cache_resource
-def _get_detector(model_id: str | None = None):
+def _get_detector(model_id: str | None = None, model_weights: str | None = None):
     """Cache the detector so it's only loaded once across reruns."""
-    from inference.detector import AudioDeepfakeDetector
-    return AudioDeepfakeDetector(model_id=model_id)
+    from inference.detector import AudioDeepfakeDetector, _parse_weights, _resolve_model_ids
+
+    weights = (
+        _parse_weights(model_weights, len(_resolve_model_ids(model_id)))
+        if model_weights
+        else None
+    )
+    return AudioDeepfakeDetector(model_id=model_id, model_weights=weights)
 
 
 def _start_pipeline(
@@ -498,6 +511,7 @@ def _start_pipeline(
     device: int | None,
     overlap: float,
     model_id: str | None,
+    model_weights: str | None,
     smoothing: int,
     uploaded_file=None,
 ):
@@ -531,7 +545,7 @@ def _start_pipeline(
             device=device, overlap_duration=overlap
         )
 
-    detector = _get_detector(model_id)
+    detector = _get_detector(model_id, model_weights)
     gate = EnergySpeechGate()
 
     orch = PipelineOrchestrator(

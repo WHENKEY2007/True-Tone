@@ -13,7 +13,7 @@ from audio.mic_capture import CHUNK_DURATION, MicrophoneCapture, SAMPLE_RATE
 from audio.system_capture import SystemAudioCapture
 from audio.vad import EnergySpeechGate
 from audio.wav_utils import chunk_audio, load_wav
-from inference.detector import AudioDeepfakeDetector
+from inference.detector import AudioDeepfakeDetector, _parse_weights, _resolve_model_ids
 from pipeline.temporal import TemporalConfidenceAggregator
 
 
@@ -248,7 +248,8 @@ def main() -> None:
     parser.add_argument("--chunk-seconds", type=int, default=CHUNK_DURATION, help="Seconds per live audio chunk.")
     parser.add_argument("--overlap", type=float, default=2.0, help="Overlap in seconds between chunks (default: 2.0 for 1s stride).")
     parser.add_argument("--gain", type=float, default=0.0, help="Gain boost in dB for quiet microphones.")
-    parser.add_argument("--model-id", default=None, help="Hugging Face model id.")
+    parser.add_argument("--model-id", default=None, help="HF model id, or comma-separated ids for an ensemble.")
+    parser.add_argument("--model-weights", default=None, help="Comma-separated model branch weights.")
     parser.add_argument("--local-files-only", action="store_true", help="Use only cached model files.")
     parser.add_argument("--min-rms", type=float, default=0.002, help="Minimum RMS for speech/inference.")
     parser.add_argument("--min-peak", type=float, default=0.01, help="Minimum peak amplitude for speech/inference.")
@@ -260,6 +261,9 @@ def main() -> None:
         chunk_seconds=args.chunk_seconds,
         local_files_only=args.local_files_only,
         min_rms=args.min_rms,
+        model_weights=_parse_weights(args.model_weights, len(_resolve_model_ids(args.model_id)))
+        if args.model_weights
+        else None,
     )
     speech_gate = EnergySpeechGate(min_rms=args.min_rms, min_peak=args.min_peak)
     pipeline = LiveDetectionPipeline(capture, detector, speech_gate, max_chunks=args.chunks)

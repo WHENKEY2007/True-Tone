@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
 
 from audio.vad import EnergySpeechGate
 from audio.wav_utils import TARGET_SAMPLE_RATE, chunk_audio, load_wav
-from inference.detector import AudioDeepfakeDetector
+from inference.detector import AudioDeepfakeDetector, _parse_weights, _resolve_model_ids
 from pipeline.temporal import TemporalConfidenceAggregator
 
 
@@ -130,8 +130,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate True-Tone as a rolling-window streaming detector.")
     parser.add_argument("directory", help="Directory containing audio files.")
     parser.add_argument("--model-id", default=None, help="Hugging Face model ID.")
+    parser.add_argument("--model-weights", default=None, help="Comma-separated model branch weights.")
     parser.add_argument("--local-files-only", action="store_true")
-    parser.add_argument("--threshold", type=float, default=0.65)
+    parser.add_argument("--threshold", type=float, default=0.20)
     parser.add_argument("--chunk-seconds", type=float, default=3.0)
     parser.add_argument("--hop-seconds", type=float, default=1.0)
     parser.add_argument("--min-rms", type=float, default=0.002)
@@ -149,6 +150,9 @@ def main() -> None:
         chunk_seconds=args.chunk_seconds,
         local_files_only=args.local_files_only,
         min_rms=args.min_rms,
+        model_weights=_parse_weights(args.model_weights, len(_resolve_model_ids(args.model_id)))
+        if args.model_weights
+        else None,
     )
     gate = EnergySpeechGate(min_rms=args.min_rms, min_peak=args.min_peak)
 
