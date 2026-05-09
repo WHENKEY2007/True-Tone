@@ -38,17 +38,23 @@ def _score_to_ai_probability(labels: list[dict[str, Any]]) -> float:
         if any(hint in label for hint in REAL_LABEL_HINTS):
             real_score = max(score, real_score or 0.0)
 
+    if fake_score is not None and real_score is not None:
+        total = fake_score + real_score
+        if total > 0.0:
+            return fake_score / total
+        return fake_score
+
     if fake_score is not None:
         return fake_score
     if real_score is not None:
         return 1.0 - real_score
 
-    best = max(labels, key=lambda item: float(item.get("score", 0.0)))
-    return float(best.get("score", 0.0))
+    # If the model returns unknown labels, avoid treating them as AI by default.
+    return 0.0
 
 
 class AudioDeepfakeDetector:
-    """CPU-friendly Hugging Face audio classification wrapper."""
+    """Hugging Face audio classification wrapper with GPU auto-detection."""
 
     def __init__(
         self,
@@ -62,10 +68,20 @@ class AudioDeepfakeDetector:
         self.sample_rate = sample_rate
         self.chunk_seconds = chunk_seconds
         self.min_rms = min_rms
+
+        # Auto-detect GPU: use CUDA if available, otherwise CPU
+        if torch.cuda.is_available():
+            device = 0  # first CUDA device
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"Loading model: {self.model_id} on GPU ({gpu_name}) ...")
+        else:
+            device = -1  # CPU
+            print(f"Loading model: {self.model_id} on CPU ...")
+
         self.classifier = pipeline(
             task="audio-classification",
             model=self.model_id,
-            device=-1,
+            device=device,
             dtype=torch.float32,
             local_files_only=local_files_only,
         )

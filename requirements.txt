@@ -27,3 +27,5 @@ python-dotenv
 # - tkinter is included with most Windows Python installs and is not a pip package.
 # - pyaudio is optional fallback capture support. On Windows/Python 3.14 it may require
 #   Microsoft C++ Build Tools because a compatible wheel may not be available.
+# - noisereduce is optional for spectral denoising in the preprocessor:
+#       pip install noisereduce

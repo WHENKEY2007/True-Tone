@@ -6,8 +6,20 @@ import time
 
 import numpy as np
 import soundcard as sc
+import ctypes
 from scipy.io.wavfile import write
 from scipy.signal import resample_poly
+
+
+def _ensure_com_initialized():
+    """Ensure Windows COM is initialized for the current thread."""
+    if hasattr(ctypes, "windll"):
+        try:
+            # 2 = COINIT_APARTMENTTHREADED, 0 = COINIT_MULTITHREADED
+            ctypes.windll.ole32.CoInitializeEx(None, 2)
+        except Exception:
+            pass
+
 
 SAMPLE_RATE = 16000
 CHUNK_DURATION = 3
@@ -16,10 +28,12 @@ OUTPUT_DIR = Path("test_system_chunks")
 
 def list_system_capture_devices() -> None:
     """Print speaker devices that support loopback recording through soundcard."""
+    _ensure_com_initialized()
     print("Available speaker loopback devices:")
     for index, speaker in enumerate(sc.all_speakers()):
         default_marker = "*" if speaker.name == sc.default_speaker().name else " "
         print(f"{default_marker} {index}: {speaker.name}")
+
 
 
 def _to_mono(audio: np.ndarray) -> np.ndarray:
@@ -52,12 +66,14 @@ def _resample_to_target(audio: np.ndarray, source_rate: int) -> np.ndarray:
 
 
 def _speaker_by_index(device: int | None):
+    _ensure_com_initialized()
     speakers = sc.all_speakers()
     if not speakers:
         raise RuntimeError("No speaker devices found for system audio capture.")
 
     if device is None:
         return sc.default_speaker()
+
 
     if device < 0 or device >= len(speakers):
         raise ValueError(f"Invalid speaker device index {device}. Run with --list-devices.")
@@ -66,7 +82,12 @@ def _speaker_by_index(device: int | None):
 
 
 class SystemAudioCapture:
-    """Capture speaker output as 16 kHz mono float32 chunks."""
+    """Capture speaker output as 16 kHz mono float32 chunks.
+
+    The recorder is opened once in ``start()`` and kept alive until
+    ``stop()`` is called, avoiding the overhead and threading issues
+    of creating a new context on every ``read()``.
+    """
 
     def __init__(
         self,
@@ -78,23 +99,38 @@ class SystemAudioCapture:
         self.speaker = _speaker_by_index(device)
         self.chunk_duration = chunk_duration
         self.capture_rate = capture_rate
+        self._recorder = None
+        self._mic = None
 
     def start(self) -> None:
         print(f"Using system speaker loopback: {self.speaker.name}")
-
-    def stop(self) -> None:
-        pass
-
-    def read(self) -> np.ndarray:
-        frames = int(self.chunk_duration * self.capture_rate)
-        with sc.get_microphone(
+        self._mic = sc.get_microphone(
             id=str(self.speaker.name),
             include_loopback=True,
-        ).recorder(samplerate=self.capture_rate) as recorder:
-            audio = recorder.record(numframes=frames)
+        )
+        self._recorder = self._mic.recorder(samplerate=self.capture_rate)
+        self._recorder.__enter__()
 
+    def stop(self) -> None:
+        if self._recorder is not None:
+            try:
+                self._recorder.__exit__(None, None, None)
+            except Exception:
+                pass
+            self._recorder = None
+        self._mic = None
+
+    def read(self) -> np.ndarray:
+        if self._recorder is None:
+            raise RuntimeError(
+                "SystemAudioCapture: call start() before read(). "
+                "The recorder is not open."
+            )
+        frames = int(self.chunk_duration * self.capture_rate)
+        audio = self._recorder.record(numframes=frames)
         mono = _to_mono(audio)
         return _resample_to_target(mono, self.capture_rate)
+
 
 
 def record_chunk(chunk_number: int, capture: SystemAudioCapture) -> Path:

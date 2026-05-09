@@ -173,16 +173,23 @@ def _build_capture(args):
         return FileReplayCapture(args.source_file, chunk_duration=args.chunk_seconds)
     if args.source == "system":
         return SystemAudioCapture(device=args.device, chunk_duration=args.chunk_seconds)
-    return MicrophoneCapture(device=args.device, chunk_duration=args.chunk_seconds)
+    return MicrophoneCapture(
+        device=args.device,
+        chunk_duration=args.chunk_seconds,
+        overlap_duration=getattr(args, "overlap", 0.0),
+        gain_db=getattr(args, "gain", 0.0),
+    )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run Day 3 live AI-voice detection in the terminal.")
+    parser = argparse.ArgumentParser(description="Run live AI-voice detection in the terminal.")
     parser.add_argument("--source", choices=("mic", "system"), default="mic", help="Live audio source.")
     parser.add_argument("--source-file", default=None, help="Replay a WAV/audio file instead of live capture.")
     parser.add_argument("--device", type=int, default=None, help="Input device index for the selected live source.")
     parser.add_argument("--chunks", type=int, default=None, help="Stop after this many chunks.")
     parser.add_argument("--chunk-seconds", type=int, default=CHUNK_DURATION, help="Seconds per live audio chunk.")
+    parser.add_argument("--overlap", type=float, default=0.0, help="Overlap in seconds between chunks (e.g. 1.5).")
+    parser.add_argument("--gain", type=float, default=0.0, help="Gain boost in dB for quiet microphones.")
     parser.add_argument("--model-id", default=None, help="Hugging Face model id.")
     parser.add_argument("--local-files-only", action="store_true", help="Use only cached model files.")
     parser.add_argument("--min-rms", type=float, default=0.002, help="Minimum RMS for speech/inference.")

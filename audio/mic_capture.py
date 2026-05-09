@@ -56,13 +56,46 @@ def _resample_to_target(audio: np.ndarray, source_rate: int) -> np.ndarray:
     return resample_poly(audio, up, down, axis=0).astype(np.float32)
 
 
-class MicrophoneCapture:
-    """Capture microphone input as 16 kHz mono float32 chunks."""
+def _apply_gain(audio: np.ndarray, gain_db: float) -> np.ndarray:
+    """Apply gain in decibels to an audio signal."""
+    if gain_db == 0.0:
+        return audio
+    factor = 10.0 ** (gain_db / 20.0)
+    return np.clip(audio * factor, -1.0, 1.0).astype(np.float32)
 
-    def __init__(self, device: int | None = None, chunk_duration: int = CHUNK_DURATION):
+
+class MicrophoneCapture:
+    """Capture microphone input as 16 kHz mono float32 chunks.
+
+    Supports optional overlapping windows for smoother real-time
+    detection and a gain parameter for boosting quiet microphones.
+
+    Args:
+        device: Sounddevice input device index (None = default).
+        chunk_duration: Duration of each emitted chunk in seconds.
+        overlap_duration: Overlap with the previous chunk in seconds.
+            Set to 0 for non-overlapping chunks.
+        gain_db: Gain boost in decibels (0 = no change).
+    """
+
+    def __init__(
+        self,
+        device: int | None = None,
+        chunk_duration: int = CHUNK_DURATION,
+        overlap_duration: float = 0.0,
+        gain_db: float = 0.0,
+    ):
         self.device = device
         self.chunk_duration = chunk_duration
+        self.overlap_duration = min(overlap_duration, chunk_duration - 0.1)
+        self.gain_db = gain_db
         self.capture_rate = _capture_sample_rate(device)
+
+        # Internal ring buffer for overlapping windows
+        self._chunk_samples = int(SAMPLE_RATE * self.chunk_duration)
+        self._overlap_samples = int(SAMPLE_RATE * self.overlap_duration)
+        self._step_samples = self._chunk_samples - self._overlap_samples
+        self._ring_buffer: np.ndarray | None = None
 
     def start(self) -> None:
         if self.device is not None:
@@ -70,23 +103,63 @@ class MicrophoneCapture:
             print(f"Using input device {self.device}: {device_info['name']}")
         else:
             print(f"Using default input device: {sd.query_devices(sd.default.device[0])['name']}")
+        if self.overlap_duration > 0:
+            print(f"Overlap: {self.overlap_duration:.1f}s ({self._overlap_samples} samples)")
+        if self.gain_db != 0.0:
+            print(f"Gain: {self.gain_db:+.1f} dB")
+        self._ring_buffer = None
 
     def stop(self) -> None:
-        pass
+        self._ring_buffer = None
 
     def read(self) -> np.ndarray:
-        audio = sd.rec(
-            int(self.chunk_duration * self.capture_rate),
-            samplerate=self.capture_rate,
-            channels=1,
-            dtype="float32",
-            device=self.device,
+        """Read one chunk from the microphone.
+
+        When overlap_duration > 0, the chunk re-uses the tail of the
+        previous capture to create a sliding window effect.
+        """
+        if self.overlap_duration <= 0 or self._ring_buffer is None:
+            # Full capture (no overlap, or first chunk)
+            frames = int(self.chunk_duration * self.capture_rate)
+            audio = sd.rec(frames, samplerate=self.capture_rate,
+                           channels=1, dtype="float32", device=self.device)
+            sd.wait()
+            resampled = np.squeeze(_resample_to_target(audio, self.capture_rate)).astype(np.float32)
+            resampled = _apply_gain(resampled, self.gain_db)
+            # Pad/trim to exact chunk size
+            resampled = _pad_or_trim(resampled, self._chunk_samples)
+            self._ring_buffer = resampled
+            return resampled
+
+        # Overlapping capture: only record the new (step) portion
+        step_frames_native = int(
+            (self._step_samples / SAMPLE_RATE) * self.capture_rate
         )
+        audio = sd.rec(step_frames_native, samplerate=self.capture_rate,
+                       channels=1, dtype="float32", device=self.device)
         sd.wait()
-        return np.squeeze(_resample_to_target(audio, self.capture_rate)).astype(np.float32)
+        new_part = np.squeeze(_resample_to_target(audio, self.capture_rate)).astype(np.float32)
+        new_part = _apply_gain(new_part, self.gain_db)
+        new_part = _pad_or_trim(new_part, self._step_samples)
+
+        # Concatenate tail of previous buffer + new audio
+        overlap_part = self._ring_buffer[-self._overlap_samples:]
+        chunk = np.concatenate([overlap_part, new_part])
+        chunk = _pad_or_trim(chunk, self._chunk_samples)
+        self._ring_buffer = chunk
+        return chunk
 
 
-def record_chunk(chunk_number: int, device: int | None = None) -> Path:
+def _pad_or_trim(audio: np.ndarray, target_length: int) -> np.ndarray:
+    """Ensure audio is exactly target_length samples."""
+    if audio.size == target_length:
+        return audio
+    if audio.size > target_length:
+        return audio[:target_length]
+    return np.pad(audio, (0, target_length - audio.size))
+
+
+def record_chunk(chunk_number: int, device: int | None = None, gain_db: float = 0.0) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     capture_rate = _capture_sample_rate(device)
 
@@ -107,6 +180,8 @@ def record_chunk(chunk_number: int, device: int | None = None) -> Path:
         print("Warning: input is nearly silent. Check microphone selection, mute state, and Windows mic permissions.")
 
     audio = _resample_to_target(audio, capture_rate)
+    audio = _apply_gain(np.squeeze(audio), gain_db)
+
     device_label = "default" if device is None else f"device_{device}"
     filename = OUTPUT_DIR / f"chunk_{chunk_number:03d}_{device_label}_{time.time_ns()}.wav"
     write(str(filename), SAMPLE_RATE, _to_int16(audio))
@@ -118,6 +193,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Capture microphone audio into 3-second WAV chunks.")
     parser.add_argument("--chunks", type=int, default=3, help="Number of chunks to record.")
     parser.add_argument("--device", type=int, default=None, help="Input device index from --list-devices.")
+    parser.add_argument("--overlap", type=float, default=0.0, help="Overlap in seconds between chunks (e.g. 1.5).")
+    parser.add_argument("--gain", type=float, default=0.0, help="Gain boost in dB for quiet microphones.")
     parser.add_argument("--list-devices", action="store_true", help="List input devices and exit.")
     args = parser.parse_args()
 
@@ -125,14 +202,28 @@ def main() -> None:
         list_input_devices()
         return
 
-    if args.device is not None:
-        device_info = sd.query_devices(args.device)
-        print(f"Using input device {args.device}: {device_info['name']}")
-    else:
-        print(f"Using default input device: {sd.query_devices(sd.default.device[0])['name']}")
-
-    for chunk_number in range(1, args.chunks + 1):
-        record_chunk(chunk_number, args.device)
+    capture = MicrophoneCapture(
+        device=args.device,
+        overlap_duration=args.overlap,
+        gain_db=args.gain,
+    )
+    capture.start()
+    try:
+        for chunk_number in range(1, args.chunks + 1):
+            chunk = capture.read()
+            rms, peak = _volume_stats(chunk)
+            print(
+                f"Chunk {chunk_number}: shape={chunk.shape}, "
+                f"rms={rms:.6f}, peak={peak:.6f}"
+            )
+            # Also save to disk
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            device_label = "default" if args.device is None else f"device_{args.device}"
+            filename = OUTPUT_DIR / f"chunk_{chunk_number:03d}_{device_label}_{time.time_ns()}.wav"
+            write(str(filename), SAMPLE_RATE, _to_int16(chunk))
+            print(f"Saved: {filename}")
+    finally:
+        capture.stop()
 
 
 if __name__ == "__main__":
