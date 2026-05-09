@@ -29,15 +29,22 @@ AI_LABEL_HINTS = ("ai", "fake", "synthetic", "generated", "deepfake", "elevenlab
 HUMAN_LABEL_HINTS = ("human", "real", "genuine", "natural", "bonafide")
 
 
-def _classify_ground_truth(filename: str) -> str | None:
-    """Infer ground-truth label from the file name.
+def _classify_ground_truth(path: str | Path) -> str | None:
+    """Infer ground-truth label from file or parent directory names.
 
     Returns 'ai', 'human', or None if indeterminate.
     """
-    name = filename.lower()
-    if any(hint in name for hint in AI_LABEL_HINTS):
+    path = Path(path)
+    parts = [part.lower() for part in (*path.parent.parts, path.name)]
+    if any(part in {"fake", "ai", "synthetic", "generated", "deepfake"} for part in parts):
         return "ai"
-    if any(hint in name for hint in HUMAN_LABEL_HINTS):
+    if any(part in {"real", "human", "bonafide", "genuine"} for part in parts):
+        return "human"
+
+    text = " ".join(parts)
+    if any(hint in text for hint in AI_LABEL_HINTS):
+        return "ai"
+    if any(hint in text for hint in HUMAN_LABEL_HINTS):
         return "human"
     return None
 
@@ -108,7 +115,7 @@ def main() -> None:
             continue
 
         verdict = "AI" if score >= args.threshold else "HUMAN"
-        truth = _classify_ground_truth(f.name)
+        truth = _classify_ground_truth(f)
         truth_label = truth.upper() if truth else "?"
 
         if truth == "ai":

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 from typing import Any
@@ -11,6 +11,7 @@ import torch
 from transformers import pipeline
 
 from audio.wav_utils import TARGET_SAMPLE_RATE, chunk_audio, load_wav
+from processing.features import extract_audio_features
 
 DEFAULT_MODEL_ID = "DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2"
 FAKE_LABEL_HINTS = ("fake", "spoof", "synthetic", "deepfake", "ai", "generated", "1")
@@ -24,6 +25,7 @@ class PredictionResult:
     chunk_scores: list[float]
     raw_outputs: list[list[dict[str, Any]]]
     model_id: str
+    feature_summaries: list[dict[str, float]] = field(default_factory=list)
 
 
 def _score_to_ai_probability(labels: list[dict[str, Any]]) -> float:
@@ -54,7 +56,7 @@ def _score_to_ai_probability(labels: list[dict[str, Any]]) -> float:
 
 
 class AudioDeepfakeDetector:
-    """Hugging Face audio classification wrapper with GPU auto-detection."""
+    """Hugging Face detector plus lightweight handcrafted feature fusion."""
 
     def __init__(
         self,
@@ -63,11 +65,18 @@ class AudioDeepfakeDetector:
         chunk_seconds: float = 3.0,
         local_files_only: bool = False,
         min_rms: float = 0.002,
+        enable_handcrafted_features: bool = True,
+        model_weight: float = 0.82,
+        behavior_weight: float = 0.18,
     ):
         self.model_id = model_id or os.getenv("TRUE_TONE_MODEL_ID", DEFAULT_MODEL_ID)
         self.sample_rate = sample_rate
         self.chunk_seconds = chunk_seconds
         self.min_rms = min_rms
+        self.enable_handcrafted_features = enable_handcrafted_features
+        self.model_weight = model_weight
+        self.behavior_weight = behavior_weight
+        self.last_feature_summaries: list[dict[str, float]] = []
 
         # Auto-detect GPU: use CUDA if available, otherwise CPU
         if torch.cuda.is_available():
@@ -90,20 +99,48 @@ class AudioDeepfakeDetector:
         chunks = chunk_audio(samples, self.sample_rate, self.chunk_seconds)
         chunk_scores = []
         raw_outputs = []
+        feature_summaries: list[dict[str, float]] = []
 
         for chunk in chunks:
             rms = float(np.sqrt(np.mean(np.square(chunk)))) if chunk.size else 0.0
             if rms < self.min_rms:
                 chunk_scores.append(0.0)
                 raw_outputs.append([{"label": "silence", "score": 1.0}])
+                feature_summaries.append({})
                 continue
 
             output = self.classifier({"array": chunk, "sampling_rate": self.sample_rate}, top_k=None)
             labels = list(output)
-            raw_outputs.append(labels)
-            chunk_scores.append(_score_to_ai_probability(labels))
+            model_score = _score_to_ai_probability(labels)
+            feature_summary = self._extract_feature_summary(chunk)
+            behavior_score = float(feature_summary.get("synthetic_behavior_score", 0.0))
+            fused_score = self._fuse_model_and_behavior(model_score, behavior_score)
 
+            if feature_summary:
+                labels.append({"label": "handcrafted_behavior", "score": behavior_score})
+                labels.append({"label": "fused_ai_probability", "score": fused_score})
+
+            raw_outputs.append(labels)
+            chunk_scores.append(fused_score)
+            feature_summaries.append(feature_summary)
+
+        self.last_feature_summaries = feature_summaries
         return float(np.mean(chunk_scores)), chunk_scores, raw_outputs
+
+    def _extract_feature_summary(self, chunk: np.ndarray) -> dict[str, float]:
+        if not self.enable_handcrafted_features:
+            return {}
+        features = extract_audio_features(chunk, self.sample_rate)
+        return features.as_dict()
+
+    def _fuse_model_and_behavior(self, model_score: float, behavior_score: float) -> float:
+        if not self.enable_handcrafted_features:
+            return float(np.clip(model_score, 0.0, 1.0))
+        total = self.model_weight + self.behavior_weight
+        if total <= 0.0:
+            return float(np.clip(model_score, 0.0, 1.0))
+        fused = (self.model_weight * model_score + self.behavior_weight * behavior_score) / total
+        return float(np.clip(fused, 0.0, 1.0))
 
     def predict_file(self, path: str | Path) -> PredictionResult:
         audio = load_wav(path, target_sample_rate=self.sample_rate)
@@ -114,6 +151,7 @@ class AudioDeepfakeDetector:
             chunk_scores=chunk_scores,
             raw_outputs=raw_outputs,
             model_id=self.model_id,
+            feature_summaries=self.last_feature_summaries,
         )
 
 

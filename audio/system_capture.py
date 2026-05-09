@@ -65,6 +65,15 @@ def _resample_to_target(audio: np.ndarray, source_rate: int) -> np.ndarray:
     return resample_poly(audio, up, down, axis=0).astype(np.float32)
 
 
+def _pad_or_trim(audio: np.ndarray, target_length: int) -> np.ndarray:
+    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if audio.size == target_length:
+        return audio
+    if audio.size > target_length:
+        return audio[:target_length]
+    return np.pad(audio, (0, target_length - audio.size))
+
+
 def _speaker_by_index(device: int | None):
     _ensure_com_initialized()
     speakers = sc.all_speakers()
@@ -93,23 +102,32 @@ class SystemAudioCapture:
         self,
         device: int | None = None,
         chunk_duration: int = CHUNK_DURATION,
+        overlap_duration: float = 0.0,
         capture_rate: int = 48000,
     ):
         self.device = device
         self.speaker = _speaker_by_index(device)
         self.chunk_duration = chunk_duration
+        self.overlap_duration = min(overlap_duration, chunk_duration - 0.1)
         self.capture_rate = capture_rate
         self._recorder = None
         self._mic = None
+        self._chunk_samples = int(SAMPLE_RATE * self.chunk_duration)
+        self._overlap_samples = int(SAMPLE_RATE * self.overlap_duration)
+        self._step_samples = self._chunk_samples - self._overlap_samples
+        self._ring_buffer: np.ndarray | None = None
 
     def start(self) -> None:
         print(f"Using system speaker loopback: {self.speaker.name}")
+        if self.overlap_duration > 0:
+            print(f"System capture overlap: {self.overlap_duration:.1f}s")
         self._mic = sc.get_microphone(
             id=str(self.speaker.name),
             include_loopback=True,
         )
         self._recorder = self._mic.recorder(samplerate=self.capture_rate)
         self._recorder.__enter__()
+        self._ring_buffer = None
 
     def stop(self) -> None:
         if self._recorder is not None:
@@ -119,6 +137,7 @@ class SystemAudioCapture:
                 pass
             self._recorder = None
         self._mic = None
+        self._ring_buffer = None
 
     def read(self) -> np.ndarray:
         if self._recorder is None:
@@ -126,10 +145,22 @@ class SystemAudioCapture:
                 "SystemAudioCapture: call start() before read(). "
                 "The recorder is not open."
             )
-        frames = int(self.chunk_duration * self.capture_rate)
+        if self.overlap_duration <= 0 or self._ring_buffer is None:
+            frames = int(self.chunk_duration * self.capture_rate)
+            audio = self._recorder.record(numframes=frames)
+            mono = _to_mono(audio)
+            chunk = _pad_or_trim(_resample_to_target(mono, self.capture_rate), self._chunk_samples)
+            self._ring_buffer = chunk
+            return chunk
+
+        frames = int((self._step_samples / SAMPLE_RATE) * self.capture_rate)
         audio = self._recorder.record(numframes=frames)
         mono = _to_mono(audio)
-        return _resample_to_target(mono, self.capture_rate)
+        new_part = _pad_or_trim(_resample_to_target(mono, self.capture_rate), self._step_samples)
+        overlap_part = self._ring_buffer[-self._overlap_samples:]
+        chunk = _pad_or_trim(np.concatenate([overlap_part, new_part]), self._chunk_samples)
+        self._ring_buffer = chunk
+        return chunk
 
 
 
@@ -155,6 +186,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Capture system/speaker audio into 3-second WAV chunks.")
     parser.add_argument("--chunks", type=int, default=3, help="Number of chunks to record.")
     parser.add_argument("--device", type=int, default=None, help="Speaker index from --list-devices.")
+    parser.add_argument("--overlap", type=float, default=0.0, help="Overlap in seconds between chunks.")
     parser.add_argument("--list-devices", action="store_true", help="List speaker loopback devices and exit.")
     args = parser.parse_args()
 
@@ -162,7 +194,7 @@ def main() -> None:
         list_system_capture_devices()
         return
 
-    capture = SystemAudioCapture(device=args.device)
+    capture = SystemAudioCapture(device=args.device, overlap_duration=args.overlap)
     capture.start()
     try:
         for chunk_number in range(1, args.chunks + 1):

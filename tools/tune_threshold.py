@@ -26,11 +26,18 @@ AI_LABEL_HINTS = ("ai", "fake", "synthetic", "generated", "deepfake", "elevenlab
 HUMAN_LABEL_HINTS = ("human", "real", "genuine", "natural", "bonafide")
 
 
-def _classify_ground_truth(filename: str) -> str | None:
-    name = filename.lower()
-    if any(hint in name for hint in AI_LABEL_HINTS):
+def _classify_ground_truth(path: str | Path) -> str | None:
+    path = Path(path)
+    parts = [part.lower() for part in (*path.parent.parts, path.name)]
+    if any(part in {"fake", "ai", "synthetic", "generated", "deepfake"} for part in parts):
         return "ai"
-    if any(hint in name for hint in HUMAN_LABEL_HINTS):
+    if any(part in {"real", "human", "bonafide", "genuine"} for part in parts):
+        return "human"
+
+    text = " ".join(parts)
+    if any(hint in text for hint in AI_LABEL_HINTS):
+        return "ai"
+    if any(hint in text for hint in HUMAN_LABEL_HINTS):
         return "human"
     return None
 
@@ -56,7 +63,7 @@ def main() -> None:
 
     scored = []
     for f in files:
-        truth = _classify_ground_truth(f.name)
+        truth = _classify_ground_truth(f)
         if truth is None:
             continue
         try:

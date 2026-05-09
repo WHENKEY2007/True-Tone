@@ -20,6 +20,8 @@ from typing import Any
 import numpy as np
 import ctypes
 
+from pipeline.temporal import TemporalConfidenceAggregator
+
 
 def _initialize_com():
     """Initialize Windows COM for the current thread."""
@@ -51,10 +53,19 @@ class ScoreRecord:
 
     index: int
     ai_probability: float
+    raw_probability: float
     rms: float
     peak: float
     is_speech: bool
     latency_seconds: float
+    decision_state: str = "insufficient_speech"
+    rolling_probability: float = 0.0
+    ema_probability: float = 0.0
+    trend: float = 0.0
+    uncertainty: float = 1.0
+    anomaly_score: float = 0.0
+    behavior_score: float = 0.0
+    cadence_consistency: float = 0.0
     timestamp: float = field(default_factory=time.time)
 
 
@@ -117,6 +128,7 @@ class PipelineOrchestrator:
         speech_gate: Any,
         history_length: int = 100,
         score_smoothing_window: int = 5,
+        temporal_memory_seconds: float = 30.0,
         max_capture_retries: int = 3,
     ):
         self.capture = capture
@@ -125,6 +137,9 @@ class PipelineOrchestrator:
         self.history_length = history_length
         self.score_smoothing_window = score_smoothing_window
         self.max_capture_retries = max_capture_retries
+        self.temporal_aggregator = TemporalConfidenceAggregator(
+            memory_seconds=temporal_memory_seconds
+        )
 
         self._state = PipelineState.IDLE
         self._state_lock = threading.Lock()
@@ -166,6 +181,7 @@ class PipelineOrchestrator:
         # Clear stale data
         with self._scores_lock:
             self._scores.clear()
+        self.temporal_aggregator.reset()
         while not self._audio_queue.empty():
             try:
                 self._audio_queue.get_nowait()
@@ -341,17 +357,38 @@ class PipelineOrchestrator:
 
                 gate = self.speech_gate.process(samples)
                 if gate.is_speech:
-                    ai_prob, _, _ = self.detector.predict_samples(gate.samples)
+                    raw_prob, _, _ = self.detector.predict_samples(gate.samples)
+                    feature_summary = self._latest_feature_summary()
+                    behavior_score = float(feature_summary.get("synthetic_behavior_score", 0.0))
+                    cadence_consistency = float(feature_summary.get("cadence_consistency", 0.0))
                 else:
-                    ai_prob = 0.0
+                    raw_prob = 0.0
+                    behavior_score = 0.0
+                    cadence_consistency = 0.0
+
+                decision = self.temporal_aggregator.update(
+                    raw_prob,
+                    is_speech=gate.is_speech,
+                    behavior_score=behavior_score,
+                    cadence_consistency=cadence_consistency,
+                )
 
                 record = ScoreRecord(
                     index=chunk_index,
-                    ai_probability=ai_prob,
+                    ai_probability=decision.stabilized_probability,
+                    raw_probability=raw_prob,
                     rms=gate.rms,
                     peak=gate.peak,
                     is_speech=gate.is_speech,
                     latency_seconds=time.time() - t0,
+                    decision_state=decision.state,
+                    rolling_probability=decision.rolling_probability,
+                    ema_probability=decision.ema_probability,
+                    trend=decision.trend,
+                    uncertainty=decision.uncertainty,
+                    anomaly_score=decision.anomaly_score,
+                    behavior_score=behavior_score,
+                    cadence_consistency=cadence_consistency,
                 )
                 with self._scores_lock:
                     self._scores.append(record)
@@ -367,3 +404,12 @@ class PipelineOrchestrator:
         with self._state_lock:
             self._state = PipelineState.ERROR
         self._stop_event.set()
+
+    def _latest_feature_summary(self) -> dict[str, float]:
+        summaries = getattr(self.detector, "last_feature_summaries", None)
+        if not summaries:
+            return {}
+        for summary in reversed(summaries):
+            if summary:
+                return summary
+        return {}

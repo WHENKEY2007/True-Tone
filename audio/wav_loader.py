@@ -24,6 +24,7 @@ from audio.wav_utils import AudioData, chunk_audio, load_wav, TARGET_SAMPLE_RATE
 def get_audio_chunks_from_wav_file(
     path: str | Path,
     chunk_seconds: float = 3.0,
+    overlap_seconds: float = 0.0,
     target_sample_rate: int = TARGET_SAMPLE_RATE,
 ) -> list[np.ndarray]:
     """Load a WAV file and return it as a list of fixed-size float32 chunks.
@@ -41,12 +42,14 @@ def get_audio_chunks_from_wav_file(
         A list of numpy arrays, one per chunk.
     """
     audio = load_wav(path, target_sample_rate=target_sample_rate)
-    return chunk_audio(audio.samples, audio.sample_rate, chunk_seconds)
+    hop_seconds = max(0.01, chunk_seconds - overlap_seconds)
+    return chunk_audio(audio.samples, audio.sample_rate, chunk_seconds, hop_seconds)
 
 
 def iter_audio_chunks_from_wav_file(
     path: str | Path,
     chunk_seconds: float = 3.0,
+    overlap_seconds: float = 0.0,
     target_sample_rate: int = TARGET_SAMPLE_RATE,
 ) -> Iterator[np.ndarray]:
     """Iterate over fixed-size chunks from a WAV file (lazy generator).
@@ -62,7 +65,9 @@ def iter_audio_chunks_from_wav_file(
     Yields:
         numpy arrays of shape ``(sample_rate * chunk_seconds,)``.
     """
-    for chunk in get_audio_chunks_from_wav_file(path, chunk_seconds, target_sample_rate):
+    for chunk in get_audio_chunks_from_wav_file(
+        path, chunk_seconds, overlap_seconds, target_sample_rate
+    ):
         yield chunk
 
 
@@ -78,11 +83,13 @@ class WAVFileReplay:
         self,
         path: str | Path,
         chunk_seconds: float = 3.0,
+        overlap_seconds: float = 0.0,
         target_sample_rate: int = TARGET_SAMPLE_RATE,
         loop: bool = True,
     ):
         self.path = Path(path)
         self.chunk_seconds = chunk_seconds
+        self.overlap_seconds = min(overlap_seconds, chunk_seconds - 0.01)
         self.target_sample_rate = target_sample_rate
         self.loop = loop
         self._chunks: list[np.ndarray] = []
@@ -91,7 +98,7 @@ class WAVFileReplay:
     def start(self) -> None:
         """Load and prepare the WAV file for replay."""
         self._chunks = get_audio_chunks_from_wav_file(
-            self.path, self.chunk_seconds, self.target_sample_rate
+            self.path, self.chunk_seconds, self.overlap_seconds, self.target_sample_rate
         )
         self._position = 0
         print(f"WAVFileReplay: loaded {len(self._chunks)} chunks from {self.path}")
@@ -134,6 +141,10 @@ def main() -> None:
         help="Duration of each chunk in seconds (default: 3.0).",
     )
     parser.add_argument(
+        "--overlap-seconds", type=float, default=0.0,
+        help="Overlap between chunks in seconds.",
+    )
+    parser.add_argument(
         "--replay", action="store_true",
         help="Test the WAVFileReplay interface (simulates live capture).",
     )
@@ -146,7 +157,12 @@ def main() -> None:
 
     if args.replay:
         print(f"Testing WAVFileReplay for {path}...")
-        replay = WAVFileReplay(path, chunk_seconds=args.chunk_seconds, loop=False)
+        replay = WAVFileReplay(
+            path,
+            chunk_seconds=args.chunk_seconds,
+            overlap_seconds=args.overlap_seconds,
+            loop=False,
+        )
         replay.start()
         chunk_idx = 0
         try:
@@ -164,7 +180,11 @@ def main() -> None:
         replay.stop()
     else:
         print(f"Loading {path}...")
-        chunks = get_audio_chunks_from_wav_file(path, chunk_seconds=args.chunk_seconds)
+        chunks = get_audio_chunks_from_wav_file(
+            path,
+            chunk_seconds=args.chunk_seconds,
+            overlap_seconds=args.overlap_seconds,
+        )
         print(f"Produced {len(chunks)} chunk(s) of {args.chunk_seconds}s each.\n")
         for i, chunk in enumerate(chunks, 1):
             rms = float(np.sqrt(np.mean(np.square(chunk)))) if chunk.size else 0.0

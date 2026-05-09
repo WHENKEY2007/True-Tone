@@ -44,10 +44,15 @@ def run_terminal(args) -> None:
         capture = WAVFileReplay(
             args.source_file,
             chunk_seconds=args.chunk_seconds,
+            overlap_seconds=args.overlap,
             loop=False,
         )
     elif args.source == "system":
-        capture = SystemAudioCapture(device=args.device, chunk_duration=args.chunk_seconds)
+        capture = SystemAudioCapture(
+            device=args.device,
+            chunk_duration=args.chunk_seconds,
+            overlap_duration=args.overlap,
+        )
     else:
         capture = MicrophoneCapture(
             device=args.device,
@@ -87,11 +92,14 @@ def run_terminal(args) -> None:
                     print(
                         f"  [{score.index:03d}] {label}  "
                         f"|{prob_bar}| {score.ai_probability:.1%}  "
+                        f"raw={score.raw_probability:.1%} state={score.decision_state} "
                         f"rms={score.rms:.4f} peak={score.peak:.4f} "
                         f"latency={score.latency_seconds:.2f}s{warning}",
                         flush=True,
                     )
                 last_count = len(scores)
+                if args.chunks is not None and last_count >= args.chunks:
+                    break
             time.sleep(0.3)
 
         # Check for errors
@@ -166,7 +174,8 @@ Examples:
     parser.add_argument("-f", "--source-file", default=None, help="Audio file path.")
     parser.add_argument("--device", type=int, default=None)
     parser.add_argument("--chunk-seconds", type=int, default=3)
-    parser.add_argument("--overlap", type=float, default=0.0)
+    parser.add_argument("--chunks", type=int, default=None, help="Stop terminal mode after this many scored chunks.")
+    parser.add_argument("--overlap", type=float, default=2.0)
     parser.add_argument("--gain", type=float, default=0.0)
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--local-files-only", action="store_true")

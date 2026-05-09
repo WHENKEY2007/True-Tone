@@ -64,18 +64,36 @@ def save_wav(filename: str | Path, samples: np.ndarray, sample_rate: int = TARGE
     return path
 
 
-def chunk_audio(samples: np.ndarray, sample_rate: int, chunk_seconds: float = 3.0) -> list[np.ndarray]:
-    """Split audio into fixed-size chunks, padding the final chunk with silence."""
+def chunk_audio(
+    samples: np.ndarray,
+    sample_rate: int,
+    chunk_seconds: float = 3.0,
+    hop_seconds: float | None = None,
+) -> list[np.ndarray]:
+    """Split audio into fixed-size chunks, optionally using overlapping hops."""
     chunk_size = int(sample_rate * chunk_seconds)
     if chunk_size <= 0:
         raise ValueError("chunk_seconds must be positive")
+    hop_size = int(sample_rate * (chunk_seconds if hop_seconds is None else hop_seconds))
+    if hop_size <= 0:
+        raise ValueError("hop_seconds must be positive")
 
     samples = np.asarray(samples, dtype=np.float32).reshape(-1)
     if samples.size == 0:
         return [np.zeros(chunk_size, dtype=np.float32)]
 
+    if hop_size >= chunk_size:
+        starts = list(range(0, samples.size, hop_size))
+    elif samples.size <= chunk_size:
+        starts = [0]
+    else:
+        starts = list(range(0, samples.size - chunk_size + 1, hop_size))
+        final_full_start = samples.size - chunk_size
+        if starts[-1] != final_full_start:
+            starts.append(final_full_start)
+
     chunks = []
-    for start in range(0, samples.size, chunk_size):
+    for start in starts:
         chunk = samples[start : start + chunk_size]
         if chunk.size < chunk_size:
             chunk = np.pad(chunk, (0, chunk_size - chunk.size))

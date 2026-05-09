@@ -301,7 +301,7 @@ def _render_streamlit_app():
             "Overlap (seconds)",
             min_value=0.0,
             max_value=2.5,
-            value=0.0,
+            value=2.0,
             step=0.5,
             help="Overlap between audio chunks for smoother detection.",
         )
@@ -515,11 +515,11 @@ def _start_pipeline(
         tmp_dir = Path(tempfile.mkdtemp())
         tmp_path = tmp_dir / uploaded_file.name
         tmp_path.write_bytes(uploaded_file.read())
-        capture = WAVFileReplay(tmp_path, loop=True)
+        capture = WAVFileReplay(tmp_path, overlap_seconds=overlap, loop=True)
     elif source == "System Audio":
         try:
             from audio.system_capture import SystemAudioCapture
-            capture = SystemAudioCapture(device=device)
+            capture = SystemAudioCapture(device=device, overlap_duration=overlap)
         except Exception as exc:
             raise RuntimeError(
                 f"System audio capture failed: {exc}\n"

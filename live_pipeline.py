@@ -14,6 +14,7 @@ from audio.system_capture import SystemAudioCapture
 from audio.vad import EnergySpeechGate
 from audio.wav_utils import chunk_audio, load_wav
 from inference.detector import AudioDeepfakeDetector
+from pipeline.temporal import TemporalConfidenceAggregator
 
 
 @dataclass(frozen=True)
@@ -27,10 +28,13 @@ class AudioChunk:
 class PipelineScore:
     index: int
     ai_probability: float
+    raw_probability: float
     rms: float
     peak: float
     is_speech: bool
     latency_seconds: float
+    decision_state: str = "insufficient_speech"
+    uncertainty: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -42,11 +46,19 @@ class WorkerError:
 class FileReplayCapture:
     """Replay a WAV/audio file as fixed-size chunks for Day 3 integration checks."""
 
-    def __init__(self, path: str | Path, chunk_duration: float = CHUNK_DURATION):
+    def __init__(
+        self,
+        path: str | Path,
+        chunk_duration: float = CHUNK_DURATION,
+        overlap_duration: float = 0.0,
+        loop: bool = False,
+    ):
         audio = load_wav(path, target_sample_rate=SAMPLE_RATE)
         self.path = Path(path)
-        self.chunks = chunk_audio(audio.samples, SAMPLE_RATE, chunk_duration)
+        hop_seconds = max(0.01, chunk_duration - overlap_duration)
+        self.chunks = chunk_audio(audio.samples, SAMPLE_RATE, chunk_duration, hop_seconds)
         self.position = 0
+        self.loop = loop
 
     def start(self) -> None:
         print(f"Replaying audio file: {self.path}")
@@ -55,7 +67,12 @@ class FileReplayCapture:
         pass
 
     def read(self) -> np.ndarray:
-        chunk = self.chunks[self.position % len(self.chunks)]
+        if self.position >= len(self.chunks):
+            if self.loop:
+                self.position = 0
+            else:
+                raise StopIteration("All replay chunks have been emitted.")
+        chunk = self.chunks[self.position]
         self.position += 1
         return chunk
 
@@ -77,6 +94,7 @@ class LiveDetectionPipeline:
         self.audio_queue: Queue[AudioChunk | None] = Queue(maxsize=3)
         self.score_queue: Queue[PipelineScore | WorkerError | None] = Queue()
         self.stop_event = threading.Event()
+        self.temporal_aggregator = TemporalConfidenceAggregator()
 
     def run_terminal(self) -> None:
         capture_thread = threading.Thread(target=self._capture_loop, name="capture", daemon=True)
@@ -98,6 +116,9 @@ class LiveDetectionPipeline:
                 print(
                     f"chunk={score.index:03d} "
                     f"ai_probability={score.ai_probability:.4f} "
+                    f"raw={score.raw_probability:.4f} "
+                    f"state={score.decision_state} "
+                    f"uncertainty={score.uncertainty:.3f} "
                     f"rms={score.rms:.5f} peak={score.peak:.5f} "
                     f"{label} latency={score.latency_seconds:.2f}s",
                     flush=True,
@@ -119,6 +140,8 @@ class LiveDetectionPipeline:
                 samples = self.capture.read()
                 self._put_audio(AudioChunk(chunk_index, samples, time.time()))
                 chunk_index += 1
+        except StopIteration:
+            pass
         except Exception as exc:
             self._put_worker_error("capture", exc)
         finally:
@@ -136,18 +159,34 @@ class LiveDetectionPipeline:
 
                 gate = self.speech_gate.process(chunk.samples)
                 if gate.is_speech:
-                    ai_probability, _, _ = self.detector.predict_samples(gate.samples)
+                    raw_probability, _, _ = self.detector.predict_samples(gate.samples)
+                    feature_summary = self._latest_feature_summary()
+                    behavior_score = float(feature_summary.get("synthetic_behavior_score", 0.0))
+                    cadence_consistency = float(feature_summary.get("cadence_consistency", 0.0))
                 else:
-                    ai_probability = 0.0
+                    raw_probability = 0.0
+                    behavior_score = 0.0
+                    cadence_consistency = 0.0
+
+                decision = self.temporal_aggregator.update(
+                    raw_probability,
+                    is_speech=gate.is_speech,
+                    behavior_score=behavior_score,
+                    cadence_consistency=cadence_consistency,
+                    timestamp=chunk.captured_at,
+                )
 
                 self.score_queue.put(
                     PipelineScore(
                         index=chunk.index,
-                        ai_probability=ai_probability,
+                        ai_probability=decision.stabilized_probability,
+                        raw_probability=raw_probability,
                         rms=gate.rms,
                         peak=gate.peak,
                         is_speech=gate.is_speech,
                         latency_seconds=time.time() - chunk.captured_at,
+                        decision_state=decision.state,
+                        uncertainty=decision.uncertainty,
                     )
                 )
         except Exception as exc:
@@ -167,12 +206,30 @@ class LiveDetectionPipeline:
         self.stop_event.set()
         self.score_queue.put(WorkerError(worker, error))
 
+    def _latest_feature_summary(self) -> dict[str, float]:
+        summaries = getattr(self.detector, "last_feature_summaries", None)
+        if not summaries:
+            return {}
+        for summary in reversed(summaries):
+            if summary:
+                return summary
+        return {}
+
 
 def _build_capture(args):
     if args.source_file:
-        return FileReplayCapture(args.source_file, chunk_duration=args.chunk_seconds)
+        return FileReplayCapture(
+            args.source_file,
+            chunk_duration=args.chunk_seconds,
+            overlap_duration=getattr(args, "overlap", 0.0),
+            loop=getattr(args, "loop_file", False),
+        )
     if args.source == "system":
-        return SystemAudioCapture(device=args.device, chunk_duration=args.chunk_seconds)
+        return SystemAudioCapture(
+            device=args.device,
+            chunk_duration=args.chunk_seconds,
+            overlap_duration=getattr(args, "overlap", 0.0),
+        )
     return MicrophoneCapture(
         device=args.device,
         chunk_duration=args.chunk_seconds,
@@ -185,10 +242,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run live AI-voice detection in the terminal.")
     parser.add_argument("--source", choices=("mic", "system"), default="mic", help="Live audio source.")
     parser.add_argument("--source-file", default=None, help="Replay a WAV/audio file instead of live capture.")
+    parser.add_argument("--loop-file", action="store_true", help="Loop --source-file replay instead of stopping at EOF.")
     parser.add_argument("--device", type=int, default=None, help="Input device index for the selected live source.")
     parser.add_argument("--chunks", type=int, default=None, help="Stop after this many chunks.")
     parser.add_argument("--chunk-seconds", type=int, default=CHUNK_DURATION, help="Seconds per live audio chunk.")
-    parser.add_argument("--overlap", type=float, default=0.0, help="Overlap in seconds between chunks (e.g. 1.5).")
+    parser.add_argument("--overlap", type=float, default=2.0, help="Overlap in seconds between chunks (default: 2.0 for 1s stride).")
     parser.add_argument("--gain", type=float, default=0.0, help="Gain boost in dB for quiet microphones.")
     parser.add_argument("--model-id", default=None, help="Hugging Face model id.")
     parser.add_argument("--local-files-only", action="store_true", help="Use only cached model files.")

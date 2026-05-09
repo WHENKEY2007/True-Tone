@@ -1,5 +1,6 @@
 test_chunks/
 test_system_chunks/
+test_audio/online_samples/
 __pycache__/
 *.py[cod]
 test_system_chunks/
