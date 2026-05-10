@@ -9,6 +9,7 @@ data flow. This is the backend that the Streamlit UI reads from.
 from __future__ import annotations
 
 import enum
+import logging
 import threading
 import time
 import traceback
@@ -19,6 +20,8 @@ from typing import Any
 
 import numpy as np
 import ctypes
+
+logger = logging.getLogger(__name__)
 
 from pipeline.temporal import TemporalConfidenceAggregator
 
@@ -318,9 +321,9 @@ class PipelineOrchestrator:
 
                 except Exception as exc:
                     consecutive_errors += 1
-                    print(
-                        f"[capture] Error #{consecutive_errors}: "
-                        f"{type(exc).__name__}: {exc}"
+                    logger.warning(
+                        "Capture error #%d: %s: %s",
+                        consecutive_errors, type(exc).__name__, exc,
                     )
                     if consecutive_errors >= self.max_capture_retries:
                         self._set_error(

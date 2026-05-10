@@ -19,8 +19,16 @@ Launch modes:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
+
+# Configure logging for the application
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 # Ensure project root is on path
 ROOT = Path(__file__).resolve().parent

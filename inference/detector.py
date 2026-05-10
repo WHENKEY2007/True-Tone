@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+import logging
 import os
 from pathlib import Path
 import sys
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 import torch
 from transformers import pipeline
 
@@ -133,15 +136,15 @@ class AudioDeepfakeDetector:
         if torch.cuda.is_available():
             device = 0  # first CUDA device
             gpu_name = torch.cuda.get_device_name(0)
-            print(f"Loading model: {self.model_id} on GPU ({gpu_name}) ...")
+            logger.info("Loading model: %s on GPU (%s)", self.model_id, gpu_name)
         else:
             device = -1  # CPU
-            print(f"Loading {len(self.model_ids)} detector model(s) on CPU ...")
+            logger.info("Loading %d detector model(s) on CPU", len(self.model_ids))
 
         self.model_branches: list[ModelBranch] = []
         for branch_id, branch_weight in zip(self.model_ids, model_weights):
             location = f"GPU ({gpu_name})" if torch.cuda.is_available() else "CPU"
-            print(f"  Loading model: {branch_id} on {location} weight={branch_weight:.3f} ...")
+            logger.info("  Loading branch: %s on %s (weight=%.3f)", branch_id, location, branch_weight)
             classifier = pipeline(
                 task="audio-classification",
                 model=branch_id,

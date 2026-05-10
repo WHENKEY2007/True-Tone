@@ -10,11 +10,14 @@ Provides multiple speech gate implementations:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -97,10 +100,9 @@ class SileroSpeechGate:
                 trust_repo=True,
             )
             self._model.eval()
-            print("Silero VAD model loaded successfully.")
+            logger.info("Silero VAD model loaded successfully.")
         except Exception as exc:
-            print(f"Warning: Could not load Silero VAD: {exc}")
-            print("Falling back to energy-based speech detection.")
+            logger.warning("Could not load Silero VAD: %s — falling back to energy-based detection.", exc)
             self._model = None
 
     def process(self, samples: np.ndarray) -> SpeechGateResult:
