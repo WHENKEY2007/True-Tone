@@ -1,13 +1,13 @@
-# 🎙️ True-Tone — Real-Time AI Voice Deepfake Detection
+# 🎙️ True Tone — AI-Powered Voice Authenticity Detection
 
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-Inference-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**True-Tone** is a real-time AI voice deepfake detection system that captures live audio from microphone or system speakers, processes it through a multi-stage detection pipeline with speech activity detection, and displays live probability scores via a Streamlit dashboard. It estimates the likelihood of synthetic speech in real time, running entirely on CPU.
+**TrueTone** is an AI-powered voice authenticity detection system that identifies whether an audio clip is real or AI-generated. It analyzes speech patterns, tone variations, and audio characteristics using machine learning techniques to improve trust and security in digital communication.
 
-> **Design Philosophy:** True-Tone deliberately avoids enterprise-grade cloud infrastructure and GPU dependencies in favor of a robust, standalone desktop application. The system estimates the *likelihood* of synthetic speech rather than claiming perfect detection.
+> With the rapid growth of AI-generated voice technologies, detecting fake or manipulated audio has become a major challenge in digital communication. TrueTone addresses this by providing fast and accurate detection results, helping improve security, reduce misinformation, and build trust in digital audio communication.
 
 ---
 
@@ -15,47 +15,62 @@
 
 | Feature | Description |
 |---|---|
-| 🎤 **Real-Time Microphone Capture** | Continuous 16 kHz mono audio capture via `sounddevice` with configurable overlapping 3-second windows (default 1-second stride) |
+| 🔐 **Authentication** | Secure session-based login with role-based access (admin / tester / demo) |
+| 🎤 **Real-Time Microphone Capture** | Continuous 16 kHz mono audio capture via `sounddevice` with sliding-window chunk generation |
+| 📁 **WAV Audio Upload** | File upload support through the Streamlit dashboard with full pipeline replay |
 | 🔊 **System Audio Loopback** | Capture speaker output through `soundcard` for monitoring playback or call audio |
-| 📁 **WAV File Ingestion** | Drop-in file replay matching the live capture contract, with upload support in the dashboard |
-| 🧠 **AI Detection Engine** | Pre-trained Wav2Vec2-based Hugging Face audio classification models with weighted ensemble support |
-| 🎯 **Silero VAD Integration** | Neural voice activity detection via Silero VAD (`SileroSpeechGate`), plus a fast energy-based gate and a hybrid two-stage gate |
-| 📊 **Streamlit Dashboard** | Live probability meter, waveform visualization, score history chart, and warning banners |
-| 🔀 **Multi-Threaded Pipeline** | Separate capture and inference threads connected via `threading` + `queue` for non-blocking data flow |
-| 📈 **Temporal Confidence Aggregation** | Session-aware EMA smoothing, trend analysis, uncertainty estimation, hysteresis states, and silence decay |
-| 🔬 **Handcrafted Feature Fusion** | Spectral entropy, pitch drift, jitter, shimmer, HNR, cadence consistency, breathiness — fused with neural scores |
-| ⚡ **CPU-Only Execution** | Runs on consumer hardware with no GPU requirement (auto-detects CUDA if available) |
-| 🔧 **Overlapping Audio Chunks** | Configurable chunk overlap (default 2 seconds) for smoother, lower-latency detection |
-| ⚠️ **Real-Time Warning Alerts** | Automatic red warning banner when AI probability exceeds configurable threshold |
+| 🧠 **AI Detection Engine** | Lightweight Wav2Vec2 / RawNetLite-compatible models via Hugging Face, optimized for CPU inference |
+| 🎯 **Silero VAD Integration** | Speech detection using Silero VAD for filtering non-speech audio, plus energy-based and hybrid gates |
+| 📊 **Streamlit Dashboard** | Real-time probability meter, waveform visualization, historical probability graph, and warning alerts |
+| ⚠️ **Warning Alerts** | Automatic red warning banner when AI probability exceeds configurable threshold |
+| 🔀 **Multi-Threaded Architecture** | Separate threads for audio capture, VAD, AI inference, and UI updates via Python `threading` and `queue` |
+| 📈 **Temporal Aggregation** | False-positive reduction through EMA smoothing, trend analysis, and hysteresis state machine |
+| 🔬 **Audio Feature Analysis** | Spectral entropy, pitch drift, jitter, shimmer, HNR, cadence consistency, breathiness scoring |
+| 📋 **Detection Event Logging** | Event log table and session analytics visualization (admin/tester roles) |
+| ⚡ **CPU-Only Execution** | Runs on standard consumer hardware without GPU (auto-detects CUDA if available) |
+| 🧪 **Testing Suite** | Unit tests, batch testing tools, threshold tuning, and model comparison utilities |
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ System Architecture
+
+TRUE TONE uses a modular real-time architecture to capture microphone or uploaded audio and process it in small chunks. The system preprocesses the audio using normalization, silence filtering, and resampling before sending it to AI models like RawNetLite and Wav2Vec2 for synthetic voice detection. Detection results are displayed on a Streamlit dashboard with live alerts and waveform analysis, while Python threading and queues enable smooth real-time processing and responsive UI updates.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        True-Tone Pipeline                           │
-│                                                                     │
-│  ┌─────────────┐    ┌──────────┐    ┌─────────────┐    ┌─────────┐ │
-│  │   Capture    │───▶│  Queue   │───▶│  Inference   │───▶│  Scores │ │
-│  │   Thread     │    │ (bounded)│    │   Thread     │    │  Deque  │ │
-│  └─────────────┘    └──────────┘    └─────────────┘    └────┬────┘ │
-│        │                                   │                 │      │
-│  ┌─────┴──────┐              ┌─────────────┴──────┐   ┌─────┴────┐ │
-│  │ Mic/System/ │              │  Speech Gate (VAD) │   │ Streamlit│ │
-│  │ WAV Replay  │              │  + AI Detector     │   │ Dashboard│ │
-│  │             │              │  + Feature Fusion   │   │   (UI)  │ │
-│  └─────────────┘              │  + Temporal Agg.   │   └──────────┘ │
-│                               └────────────────────┘                │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         TRUE TONE — Pipeline Architecture                    │
+│                                                                              │
+│  ┌──────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌─────────┐ │
+│  │  Audio Source │───▶│ Thread Queue │───▶│ Inference Thread │───▶│ Scores  │ │
+│  │  (Capture     │    │  (bounded)   │    │                 │    │ (deque) │ │
+│  │   Thread)     │    └──────────────┘    │ ┌─────────────┐ │    └────┬────┘ │
+│  └──────┬───────┘                        │ │ Silero VAD  │ │         │      │
+│         │                                │ │ Speech Gate │ │    ┌────┴────┐ │
+│  ┌──────┴───────┐                        │ └──────┬──────┘ │    │Streamlit│ │
+│  │ • Microphone  │                        │ ┌──────┴──────┐ │    │Dashboard│ │
+│  │ • System Audio│                        │ │ Wav2Vec2 /  │ │    │  (UI)   │ │
+│  │ • WAV Upload  │                        │ │ RawNetLite  │ │    │         │ │
+│  │ • File Replay │                        │ │  Detector   │ │    │• Meter  │ │
+│  └──────────────┘                        │ └──────┬──────┘ │    │• Wave   │ │
+│                                          │ ┌──────┴──────┐ │    │• Graph  │ │
+│                                          │ │  Feature    │ │    │• Alerts │ │
+│                                          │ │  Fusion +   │ │    │• Logs   │ │
+│                                          │ │  Temporal   │ │    └─────────┘ │
+│                                          │ │  Aggregator │ │                 │
+│                                          │ └─────────────┘ │                 │
+│                                          └─────────────────┘                 │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The pipeline runs two background threads orchestrated by `PipelineOrchestrator`:
+### Processing Pipeline
 
-1. **Capture Thread** — reads audio from the selected source (`MicrophoneCapture`, `SystemAudioCapture`, or `WAVFileReplay`) and enqueues 3-second chunks with configurable overlap.
-2. **Inference Thread** — dequeues chunks, runs them through the speech gate (energy-based, Silero VAD, or hybrid), performs AI detection via the Hugging Face ensemble, extracts handcrafted behavioral features, fuses scores, and publishes `ScoreRecord` results through the temporal confidence aggregator.
-
-The Streamlit dashboard polls `PipelineOrchestrator.snapshot()` to read results without blocking — a thread-safe, lock-minimal design.
+1. **Audio Capture** — 3-second overlapping chunks (48,000 samples at 16 kHz) via `sounddevice`
+2. **Preprocessing** — Mono conversion, resampling to 16 kHz, volume normalization, noise filtering
+3. **Speech Detection** — Silero VAD filters non-speech audio; energy-based gate as fast pre-filter
+4. **AI Inference** — Lightweight Wav2Vec2 / RawNetLite models generate AI probability score (0.0–1.0)
+5. **Feature Fusion** — Handcrafted DSP features fused with neural model scores
+6. **Temporal Aggregation** — EMA smoothing, rolling averages, hysteresis for false-positive reduction
+7. **Dashboard Display** — Real-time probability meter, waveform, score history, warning alerts
 
 ---
 
@@ -67,39 +82,44 @@ True-Tone/
 ├── live_pipeline.py                # Standalone threaded live detection pipeline
 ├── requirements.txt                # Python dependencies
 │
-├── audio/                          # Audio capture and I/O modules
+├── audio/                          # Audio capture and processing modules
 │   ├── mic_capture.py              # Real-time microphone capture (sounddevice)
 │   ├── system_capture.py           # System audio loopback capture (soundcard)
-│   ├── wav_loader.py               # WAV file replay (drop-in capture replacement)
-│   ├── wav_utils.py                # Audio loading, saving, and chunking utilities
+│   ├── wav_loader.py               # WAV file ingestion and replay
+│   ├── wav_utils.py                # Audio loading, saving, chunking utilities
 │   ├── vad.py                      # VAD: EnergySpeechGate, SileroSpeechGate, HybridSpeechGate
-│   └── buffer.py                   # Thread-safe audio buffer with peek/drain operations
+│   └── buffer.py                   # Thread-safe audio buffer with sliding window
 │
-├── processing/                     # Audio preprocessing and feature extraction
+├── processing/                     # Audio processing and feature extraction
 │   ├── preprocessor.py             # Mono conversion, resampling, normalization, pad/trim
-│   └── features.py                 # Handcrafted DSP features (spectral, pitch, behavioral)
+│   └── features.py                 # Handcrafted DSP/behavioral features
 │
 ├── inference/                      # AI detection engine
-│   └── detector.py                 # HuggingFace ensemble detector with feature fusion
+│   └── detector.py                 # HuggingFace Wav2Vec2/RawNetLite ensemble detector
 │
-├── pipeline/                       # Pipeline orchestration
-│   ├── orchestrator.py             # Multi-threaded capture → gate → detector orchestrator
+├── pipeline/                       # Multi-threaded pipeline orchestration
+│   ├── orchestrator.py             # Capture → VAD → Detector orchestrator (threading + queue)
 │   └── temporal.py                 # Temporal confidence aggregation with hysteresis
 │
-├── ui/                             # Frontend
-│   └── dashboard.py                # Streamlit dashboard with live meter and charts
+├── ui/                             # Frontend dashboard
+│   └── dashboard.py                # Streamlit dashboard with auth, live meter, logs, analytics
 │
-├── tools/                          # Testing and evaluation utilities
+├── tools/                          # Testing, evaluation, and tuning utilities
 │   ├── run_tests.py                # Batch accuracy testing with confusion matrix
-│   ├── compare_models.py           # Side-by-side model comparison on a single file
+│   ├── compare_models.py           # Side-by-side model comparison
 │   ├── evaluate_streaming.py       # Session-level streaming evaluation
 │   ├── tune_threshold.py           # Threshold optimization on labeled datasets
 │   ├── tune_streaming_threshold.py # Threshold tuning with temporal aggregation
 │   ├── download_online_samples.py  # Download public real/fake test samples
-│   └── generate_test_audio.py      # Generate synthetic test audio for validation
+│   └── generate_test_audio.py      # Generate synthetic test audio
 │
-├── ARCHITECTURAL_BLUEPRINT.md      # Detailed architecture and team execution plan
-└── ROBUSTNESS_UPGRADE_PLAN.md      # Roadmap for ensemble expansion and robustness
+├── tests/                          # Unit test suite
+│   └── test_core.py                # Tests for preprocessing, VAD, chunking, features
+│
+├── ARCHITECTURAL_BLUEPRINT.md      # Detailed architecture and 6-day execution plan
+├── ROBUSTNESS_UPGRADE_PLAN.md      # Roadmap for ensemble expansion and robustness
+├── CONTRIBUTING.md                 # Development and contribution guidelines
+└── LICENSE                         # MIT License
 ```
 
 ---
@@ -108,7 +128,7 @@ True-Tone/
 
 ### Prerequisites
 
-- Python 3.10 or later
+- Python 3.9 or later
 - A working microphone (for live capture) or audio files for file-based analysis
 - ~500 MB disk space for model download (cached after first run)
 
@@ -128,138 +148,167 @@ source venv/bin/activate        # Linux/macOS
 pip install -r requirements.txt
 ```
 
-### Quick Start — Streamlit Dashboard
+### Launch the Streamlit Dashboard
 
 ```bash
 streamlit run ui/dashboard.py
 ```
 
-This launches the full interactive dashboard where you can:
-- Select audio source (Microphone / System Audio / WAV File upload)
-- Start/stop live detection
-- View the real-time AI probability meter and waveform
-- Monitor score history with threshold visualization
-- Receive warning alerts when synthetic speech is detected
+**Login with demo credentials:**
 
-### Quick Start — Terminal Mode
+| Role | Username | Password | Access |
+|---|---|---|---|
+| Admin | `admin` | `truetone2025` | Full access — model config, logs, threshold tuning |
+| Tester | `tester` | `testpass` | Detection + event logs + analytics |
+| Demo | `demo` | `demo` | Detection only — simplified interface |
+
+After login, select an audio source (Microphone / System Audio / WAV File) and press **▶️ Start** to begin real-time detection.
+
+### Terminal Mode
 
 ```bash
 # Live microphone detection
 python app.py --mode terminal --source mic
 
-# System audio loopback detection
+# System audio loopback
 python app.py --mode terminal --source system --device 0
 
-# File analysis
+# Analyze a single audio file
 python app.py --mode file --source-file path/to/audio.wav
 ```
 
 ---
 
+## 📋 Requirements Fulfillment
+
+### Functional Requirements
+
+| Requirement | Status | Implementation |
+|---|---|---|
+| **Authentication** | ✅ | Session-based login with role credentials (`ui/dashboard.py`) |
+| **Role-based access** | ✅ | Admin / Tester / Demo roles with permission controls |
+| **Real-time microphone capture** | ✅ | `audio/mic_capture.py` — `sounddevice` with overlapping windows |
+| **WAV audio upload** | ✅ | Streamlit file uploader in dashboard sidebar |
+| **Sliding-window chunk generation** | ✅ | 3-second chunks with configurable overlap (default 2s = 1s stride) |
+| **Speech detection (Silero VAD)** | ✅ | `audio/vad.py` — `SileroSpeechGate`, `HybridSpeechGate`, `EnergySpeechGate` |
+| **Noise filtering & silence removal** | ✅ | Energy gate pre-filter + Silero VAD speech/silence classification |
+| **Audio normalization & 16 kHz resampling** | ✅ | `processing/preprocessor.py` — mono, resample, peak-normalize |
+| **AI probability score (0.0–1.0)** | ✅ | `inference/detector.py` — per-chunk and aggregated scores |
+| **CPU-only execution** | ✅ | Default CPU inference, auto-detects CUDA if available |
+| **Real-time probability meter** | ✅ | Large score display with color coding in dashboard |
+| **Waveform visualization** | ✅ | Live matplotlib waveform plot in dashboard |
+| **Historical probability graph** | ✅ | Score history chart with threshold line |
+| **Warning alerts** | ✅ | Red/yellow/green alerts based on configurable threshold |
+| **Detection event logging** | ✅ | Event log table + session analytics (tester/admin roles) |
+| **False-positive reduction** | ✅ | `pipeline/temporal.py` — EMA, rolling average, hysteresis |
+
+### Technical Requirements
+
+| Requirement | Status | Implementation |
+|---|---|---|
+| **Python + Streamlit** | ✅ | Python 3.9+, Streamlit dashboard |
+| **CPU hardware, no GPU** | ✅ | All inference on CPU by default |
+| **Audio as NumPy arrays** | ✅ | float32 mono arrays throughout |
+| **3-second chunks (48,000 samples at 16 kHz)** | ✅ | Configurable via `--chunk-seconds` |
+| **Silero VAD integration** | ✅ | `SileroSpeechGate` in `audio/vad.py` |
+| **Wav2Vec2 / RawNetLite models** | ✅ | HuggingFace `audio-classification` pipeline |
+| **1–2 second inference latency** | ✅ | Measured latency per chunk displayed in dashboard |
+| **Multi-threaded (threading + queue)** | ✅ | `pipeline/orchestrator.py` — capture thread + inference thread |
+| **Separate threads for capture, VAD, inference, UI** | ✅ | Orchestrator manages thread lifecycle |
+
+---
+
+## 🛡️ Technologies Used
+
+| Technology | Purpose |
+|---|---|
+| **Python 3.9+** | Core application language |
+| **Streamlit** | Interactive dashboard frontend |
+| **PyTorch** | Neural network inference runtime |
+| **Torchaudio** | Audio processing and transforms |
+| **NumPy** | Array operations and audio data handling |
+| **SciPy** | Signal processing, resampling, spectral analysis |
+| **SoundDevice** | Real-time microphone audio capture |
+| **SoundCard** | System audio loopback capture |
+| **PyAudio** | Optional fallback audio capture support |
+| **Silero VAD** | Neural voice activity detection |
+| **Hugging Face Transformers** | Pre-trained model loading and inference pipeline |
+| **Wav2Vec2** | Primary speech representation model for detection |
+| **RawNetLite** | Lightweight waveform-based countermeasure model |
+| **Threading & Queue** | Multi-threaded pipeline orchestration |
+| **Matplotlib** | Waveform and score visualization |
+| **Librosa** | Pitch estimation (YIN) and audio feature extraction |
+
+---
+
 ## 🎛️ Usage Guide
 
-### 1. Audio Capture
+### Audio Capture
 
-**List available devices:**
 ```bash
-python -m audio.mic_capture --list-devices        # Microphone devices
-python -m audio.system_capture --list-devices      # System loopback devices
-```
+# List available input devices
+python -m audio.mic_capture --list-devices
+python -m audio.system_capture --list-devices
 
-**Record test chunks:**
-```bash
+# Record test chunks
 python -m audio.mic_capture --chunks 3 --device 1
 python -m audio.system_capture --chunks 3 --device 0
 ```
 
-### 2. Static File Detection
+### Static File Detection
 
 ```bash
-# Single file analysis
+# Single file analysis with AI probability score
 python -m inference.detector path/to/audio.wav
 
-# Use cached model (offline)
+# Use cached model (offline mode)
 python -m inference.detector path/to/audio.wav --local-files-only
 
 # Compare multiple detector models
 python tools/compare_models.py path/to/audio.wav
 ```
 
-### 3. Live Terminal Pipeline
+### Live Terminal Pipeline
 
 ```bash
-# Microphone with default settings (3s chunks, 2s overlap = 1s stride)
+# Microphone detection (3s chunks, 2s overlap = 1s stride)
 python live_pipeline.py --source mic --device 1
 
-# System audio
+# System audio loopback
 python live_pipeline.py --source system --device 0
 
-# Replay a file through the full live pipeline
-python live_pipeline.py --source-file test_chunks/sample.wav --chunks 3 --local-files-only
+# File replay through full pipeline
+python live_pipeline.py --source-file test_chunks/sample.wav --chunks 3
 ```
 
-Each chunk prints: `ai_probability`, `raw_probability`, `decision_state`, `uncertainty`, `rms`, `peak`, speech/silence label, and latency.
+Each chunk outputs: `ai_probability`, `raw_probability`, `decision_state`, `uncertainty`, `rms`, `peak`, speech/silence label, and inference latency.
 
-### 4. Ensemble Detection
-
-True-Tone supports weighted multi-model ensembles:
+### Ensemble Detection
 
 ```bash
-# Two-model ensemble with custom weights
+# Weighted multi-model ensemble
 python -m inference.detector audio.wav \
   --model-id "DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2,Vansh180/deepfake-audio-wav2vec2" \
   --model-weights "0.6,0.4"
-
-# Or via environment variables
-export TRUE_TONE_MODEL_IDS="DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2,Vansh180/deepfake-audio-wav2vec2"
-export TRUE_TONE_MODEL_WEIGHTS="0.6,0.4"
 ```
 
-### 5. Batch Testing
+### Batch Testing & Threshold Tuning
 
 ```bash
-# Test all files in a directory with accuracy metrics
+# Test all files with accuracy metrics
 python tools/run_tests.py test_audio/ --threshold 0.20
 
-# Tune the optimal threshold on labeled data
-python tools/tune_streaming_threshold.py test_audio/online_samples --local-files-only
+# Tune optimal threshold on labeled data
+python tools/tune_streaming_threshold.py test_audio/online_samples
 ```
 
----
+### Unit Tests
 
-## 🧩 Module Details
-
-### Voice Activity Detection (`audio/vad.py`)
-
-Three speech gate implementations:
-
-| Gate | Method | Use Case |
-|---|---|---|
-| `EnergySpeechGate` | RMS + peak amplitude thresholds | Fast CPU-only pre-filter (default) |
-| `SileroSpeechGate` | Silero VAD neural model (PyTorch Hub) | Higher accuracy in noisy environments |
-| `HybridSpeechGate` | Energy pre-filter → Silero confirmation | Best of both: speed + accuracy |
-
-### Temporal Confidence Aggregation (`pipeline/temporal.py`)
-
-Raw per-chunk scores are noisy. The `TemporalConfidenceAggregator` stabilizes them using:
-
-- **EMA smoothing** (α=0.35) with silence decay
-- **Recency-weighted rolling average** across the speech memory window (30s)
-- **Trend analysis** via linear regression on recent scores
-- **Uncertainty estimation** from score variance
-- **Anomaly scoring** from behavioral + cadence features
-- **Hysteresis state machine**: `insufficient_speech` → `likely_real` / `suspicious` / `likely_synthetic`
-
-### Handcrafted Feature Fusion (`processing/features.py`)
-
-Complements neural detection with codec-surviving signals:
-
-- Spectral: entropy, centroid, bandwidth, flatness, high-frequency ratio
-- Prosody: pitch mean/std/drift (YIN), local jitter, local shimmer
-- Temporal: energy variance/CV, pause ratio/count/duration CV, rhythm irregularity
-- Voice quality: harmonic-to-noise ratio (dB), breathiness score, cadence consistency
-
-These features are fused with the neural model score using configurable weights (default: 82% model, 18% behavioral).
+```bash
+python -m pytest tests/ -v
+# or
+python -m unittest discover tests/ -v
+```
 
 ---
 
@@ -268,9 +317,9 @@ These features are fused with the neural model score using configurable weights 
 | Parameter | Default | Description |
 |---|---|---|
 | `--chunk-seconds` | `3` | Duration of each audio chunk (seconds) |
-| `--overlap` | `2.0` | Overlap between chunks (seconds); 2s overlap on 3s chunks = 1s stride |
-| `--threshold` | `0.20` | AI probability alert threshold (tuned on streaming samples) |
-| `--smoothing` | `5` | Moving average window for UI score smoothing |
+| `--overlap` | `2.0` | Overlap between chunks (seconds); 2s on 3s = 1s stride |
+| `--threshold` | `0.20` | AI probability alert threshold |
+| `--smoothing` | `5` | Moving average window for score smoothing |
 | `--min-rms` | `0.002` | Minimum RMS energy for speech detection |
 | `--min-peak` | `0.01` | Minimum peak amplitude for speech detection |
 | `--gain` | `0.0` | Microphone gain boost in dB |
@@ -279,44 +328,60 @@ These features are fused with the neural model score using configurable weights 
 
 ---
 
-## 🛡️ Technology Stack
+## 🔍 In Scope
 
-| Layer | Technology |
-|---|---|
-| **Audio Capture** | `sounddevice` (microphone), `soundcard` (system loopback) |
-| **Voice Activity Detection** | Silero VAD (neural), energy-based gate, hybrid two-stage |
-| **AI Detection Engine** | Hugging Face `transformers` pipeline, Wav2Vec2-based classifiers |
-| **Feature Extraction** | `scipy`, `librosa`, `numpy` — spectral, pitch, behavioral features |
-| **Score Fusion** | Weighted neural + handcrafted behavioral fusion |
-| **Temporal Aggregation** | EMA, rolling averages, trend, hysteresis state machine |
-| **Pipeline Orchestration** | Python `threading` + `queue` (capture thread + inference thread) |
-| **Frontend / Dashboard** | Streamlit with `matplotlib` visualizations |
-| **Data Processing** | `numpy`, `scipy`, `torch`, `torchaudio` |
+- ✅ Real-time microphone audio capture
+- ✅ WAV audio ingestion
+- ✅ Speech activity detection and filtering (Silero VAD)
+- ✅ AI-based synthetic speech detection
+- ✅ Live probability scoring (0.0–1.0)
+- ✅ Streamlit visualization dashboard
+- ✅ Real-time warning alerts
+- ✅ CPU-only execution support
+- ✅ Modular audio processing pipeline
+- ✅ Demo-ready live detection workflow
+- ✅ False-positive reduction through temporal aggregation
+
+## 🚫 Out of Scope
+
+- Training or fine-tuning AI models
+- GPU acceleration and TensorRT optimization
+- Kubernetes or cloud-native deployment
+- Zoom SDK or Recall.ai integration
+- Enterprise-scale distributed infrastructure
+- Speaker diarization
+- Custom dataset creation
+- Mobile application support
+- WebSocket-based streaming infrastructure
+- Multi-cloud deployment environments
 
 ---
 
-## 🗺️ Future Roadmap
+## 🗺️ Future Enhancements
 
-See [ROBUSTNESS_UPGRADE_PLAN.md](ROBUSTNESS_UPGRADE_PLAN.md) for the detailed upgrade path.
+See [ROBUSTNESS_UPGRADE_PLAN.md](ROBUSTNESS_UPGRADE_PLAN.md) for the detailed roadmap.
 
-**Planned enhancements:**
+- 📱 Mobile platform integration
+- 📊 Enhanced waveform visualization
+- 🎯 Advanced probability meter UI
+- 📧 Email-based alert notifications
+- 🌍 Multi-language voice detection
+- 🌐 Real-time browser audio monitoring
+- 🔀 Advanced AI ensemble detection models (AASIST, RawNet2, WavLM, Whisper, HuBERT)
+- 🛡️ Voice spoof attack classification
+- 🌙 Dark mode dashboard support
 
-- 🔀 **Multi-Model Ensemble Expansion** — AASIST, RawNet2, WavLM, Whisper, and HuBERT embedding classifiers
-- 📱 **Mobile Integration** — Lightweight ONNX-exported models for on-device inference
-- 🌙 **Dark Mode** — Extended Streamlit theming with full dark/light mode toggle
-- 📧 **Email/Webhook Alerts** — Configurable notification triggers when synthetic speech is sustained
-- 🌐 **Browser Audio Monitoring** — WebRTC-based capture for in-browser detection
-- 🔊 **Codec Robustness** — Augmentation and evaluation under Opus, MP3, G.711, G.722, AAC-LD conditions
-- 📊 **Calibrated Stacking** — Meta-model (logistic regression → LightGBM) over all branch logits and features
-- ⏱️ **Tiered Inference** — Cheap features every 1s, heavy models every 3–5s for latency/accuracy balance
+---
+
+## 📝 Conclusion
+
+TRUE TONE is a lightweight and practical AI voice deepfake detection platform designed for real-time synthetic speech analysis. The project emphasizes modular architecture, CPU-efficient execution, and rapid deployment while delivering meaningful live AI detection capabilities. Its primary strengths lie in real-time responsiveness, simplified deployment, and effective integration of modern audio classification pipelines. Future growth opportunities include improving detection accuracy, expanding supported audio sources, and integrating advanced AI ensemble techniques for stronger real-world resilience.
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
----
 
 ## 🤝 Contributing
 
