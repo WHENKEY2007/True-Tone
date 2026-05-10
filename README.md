@@ -15,7 +15,6 @@
 
 | Feature | Description |
 |---|---|
-| 🔐 **Authentication** | Secure session-based login with role-based access (admin / tester / demo) |
 | 🎤 **Real-Time Microphone Capture** | Continuous 16 kHz mono audio capture via `sounddevice` with sliding-window chunk generation |
 | 📁 **WAV Audio Upload** | File upload support through the Streamlit dashboard with full pipeline replay |
 | 🔊 **System Audio Loopback** | Capture speaker output through `soundcard` for monitoring playback or call audio |
@@ -26,7 +25,7 @@
 | 🔀 **Multi-Threaded Architecture** | Separate threads for audio capture, VAD, AI inference, and UI updates via Python `threading` and `queue` |
 | 📈 **Temporal Aggregation** | False-positive reduction through EMA smoothing, trend analysis, and hysteresis state machine |
 | 🔬 **Audio Feature Analysis** | Spectral entropy, pitch drift, jitter, shimmer, HNR, cadence consistency, breathiness scoring |
-| 📋 **Detection Event Logging** | Event log table and session analytics visualization (admin/tester roles) |
+| 📋 **Detection Event Logging** | Event log table and session analytics visualization in the dashboard |
 | ⚡ **CPU-Only Execution** | Runs on standard consumer hardware without GPU (auto-detects CUDA if available) |
 | 🧪 **Testing Suite** | Unit tests, batch testing tools, threshold tuning, and model comparison utilities |
 
@@ -102,7 +101,7 @@ True-Tone/
 │   └── temporal.py                 # Temporal confidence aggregation with hysteresis
 │
 ├── ui/                             # Frontend dashboard
-│   └── dashboard.py                # Streamlit dashboard with auth, live meter, logs, analytics
+│   └── dashboard.py                # Streamlit dashboard with live meter, logs, analytics
 │
 ├── tools/                          # Testing, evaluation, and tuning utilities
 │   ├── run_tests.py                # Batch accuracy testing with confusion matrix
@@ -154,15 +153,7 @@ pip install -r requirements.txt
 streamlit run ui/dashboard.py
 ```
 
-**Login with demo credentials:**
-
-| Role | Username | Password | Access |
-|---|---|---|---|
-| Admin | `admin` | `truetone2025` | Full access — model config, logs, threshold tuning |
-| Tester | `tester` | `testpass` | Detection + event logs + analytics |
-| Demo | `demo` | `demo` | Detection only — simplified interface |
-
-After login, select an audio source (Microphone / System Audio / WAV File) and press **▶️ Start** to begin real-time detection.
+Select an audio source (Microphone / System Audio / WAV File) and press **▶️ Start** to begin real-time detection.
 
 ### Terminal Mode
 
@@ -185,8 +176,6 @@ python app.py --mode file --source-file path/to/audio.wav
 
 | Requirement | Status | Implementation |
 |---|---|---|
-| **Authentication** | ✅ | Session-based login with role credentials (`ui/dashboard.py`) |
-| **Role-based access** | ✅ | Admin / Tester / Demo roles with permission controls |
 | **Real-time microphone capture** | ✅ | `audio/mic_capture.py` — `sounddevice` with overlapping windows |
 | **WAV audio upload** | ✅ | Streamlit file uploader in dashboard sidebar |
 | **Sliding-window chunk generation** | ✅ | 3-second chunks with configurable overlap (default 2s = 1s stride) |
@@ -199,7 +188,7 @@ python app.py --mode file --source-file path/to/audio.wav
 | **Waveform visualization** | ✅ | Live matplotlib waveform plot in dashboard |
 | **Historical probability graph** | ✅ | Score history chart with threshold line |
 | **Warning alerts** | ✅ | Red/yellow/green alerts based on configurable threshold |
-| **Detection event logging** | ✅ | Event log table + session analytics (tester/admin roles) |
+| **Detection event logging** | ✅ | Event log table + session analytics in dashboard |
 | **False-positive reduction** | ✅ | `pipeline/temporal.py` — EMA, rolling average, hysteresis |
 
 ### Technical Requirements
@@ -238,93 +227,6 @@ python app.py --mode file --source-file path/to/audio.wav
 | **Threading & Queue** | Multi-threaded pipeline orchestration |
 | **Matplotlib** | Waveform and score visualization |
 | **Librosa** | Pitch estimation (YIN) and audio feature extraction |
-
----
-
-## 🎛️ Usage Guide
-
-### Audio Capture
-
-```bash
-# List available input devices
-python -m audio.mic_capture --list-devices
-python -m audio.system_capture --list-devices
-
-# Record test chunks
-python -m audio.mic_capture --chunks 3 --device 1
-python -m audio.system_capture --chunks 3 --device 0
-```
-
-### Static File Detection
-
-```bash
-# Single file analysis with AI probability score
-python -m inference.detector path/to/audio.wav
-
-# Use cached model (offline mode)
-python -m inference.detector path/to/audio.wav --local-files-only
-
-# Compare multiple detector models
-python tools/compare_models.py path/to/audio.wav
-```
-
-### Live Terminal Pipeline
-
-```bash
-# Microphone detection (3s chunks, 2s overlap = 1s stride)
-python live_pipeline.py --source mic --device 1
-
-# System audio loopback
-python live_pipeline.py --source system --device 0
-
-# File replay through full pipeline
-python live_pipeline.py --source-file test_chunks/sample.wav --chunks 3
-```
-
-Each chunk outputs: `ai_probability`, `raw_probability`, `decision_state`, `uncertainty`, `rms`, `peak`, speech/silence label, and inference latency.
-
-### Ensemble Detection
-
-```bash
-# Weighted multi-model ensemble
-python -m inference.detector audio.wav \
-  --model-id "DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2,Vansh180/deepfake-audio-wav2vec2" \
-  --model-weights "0.6,0.4"
-```
-
-### Batch Testing & Threshold Tuning
-
-```bash
-# Test all files with accuracy metrics
-python tools/run_tests.py test_audio/ --threshold 0.20
-
-# Tune optimal threshold on labeled data
-python tools/tune_streaming_threshold.py test_audio/online_samples
-```
-
-### Unit Tests
-
-```bash
-python -m pytest tests/ -v
-# or
-python -m unittest discover tests/ -v
-```
-
----
-
-## ⚙️ Configuration
-
-| Parameter | Default | Description |
-|---|---|---|
-| `--chunk-seconds` | `3` | Duration of each audio chunk (seconds) |
-| `--overlap` | `2.0` | Overlap between chunks (seconds); 2s on 3s = 1s stride |
-| `--threshold` | `0.20` | AI probability alert threshold |
-| `--smoothing` | `5` | Moving average window for score smoothing |
-| `--min-rms` | `0.002` | Minimum RMS energy for speech detection |
-| `--min-peak` | `0.01` | Minimum peak amplitude for speech detection |
-| `--gain` | `0.0` | Microphone gain boost in dB |
-| `--model-id` | `DeepFake-Audio-Rangers/DeepfakeDetect_wav2vec2` | HuggingFace model ID(s) |
-| `--model-weights` | Equal | Comma-separated ensemble branch weights |
 
 ---
 

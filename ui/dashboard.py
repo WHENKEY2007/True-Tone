@@ -38,22 +38,6 @@ except ImportError:
 DEFAULT_THRESHOLD = 0.20
 POLL_INTERVAL = 0.8  # seconds between UI refreshes
 
-# ── Role-based access credentials ────────────────────────────────────
-# Simple session-based auth for demo/testing environments.
-# Roles: admin (full access), tester (detection + logs), demo (detection only)
-
-DEMO_CREDENTIALS = {
-    "admin": {"password": "truetone2025", "role": "admin"},
-    "tester": {"password": "testpass", "role": "tester"},
-    "demo": {"password": "demo", "role": "demo"},
-}
-
-ROLE_PERMISSIONS = {
-    "admin": {"can_configure_model": True, "can_view_logs": True, "can_change_threshold": True},
-    "tester": {"can_configure_model": False, "can_view_logs": True, "can_change_threshold": True},
-    "demo": {"can_configure_model": False, "can_view_logs": False, "can_change_threshold": False},
-}
-
 
 # ── Helper functions ─────────────────────────────────────────────────
 
@@ -169,50 +153,8 @@ class Dashboard:
 # ── Streamlit app ────────────────────────────────────────────────────
 
 
-def _render_login_page():
-    """Render the login page for session-based authentication."""
-    st.set_page_config(
-        page_title="True-Tone · Login",
-        page_icon="🔐",
-        layout="centered",
-    )
-    st.markdown(
-        """
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("## 🔐 True-Tone Login")
-    st.markdown("Enter your credentials to access the AI voice detection dashboard.")
-    st.markdown("---")
-
-    username = st.text_input("Username", key="login_user")
-    password = st.text_input("Password", type="password", key="login_pass")
-
-    if st.button("🔓 Login", use_container_width=True):
-        if username in DEMO_CREDENTIALS and DEMO_CREDENTIALS[username]["password"] == password:
-            st.session_state.authenticated = True
-            st.session_state.username = username
-            st.session_state.role = DEMO_CREDENTIALS[username]["role"]
-            st.session_state.permissions = ROLE_PERMISSIONS[st.session_state.role]
-            st.rerun()
-        else:
-            st.error("Invalid credentials. Try: demo / demo")
-
-    st.markdown("---")
-    st.caption("Demo accounts: `admin` / `truetone2025` · `tester` / `testpass` · `demo` / `demo`")
-
-
 def _render_streamlit_app():
     """Full Streamlit application layout and logic."""
-
-    # ── Authentication gate ──────────────────────────────────────
-    if not st.session_state.get("authenticated", False):
-        _render_login_page()
-        return
 
     st.set_page_config(
         page_title="True-Tone · AI Voice Detector",
@@ -318,20 +260,7 @@ def _render_streamlit_app():
         st.session_state.pipeline_active = False
 
     # ── Sidebar controls ─────────────────────────────────────────
-    permissions = st.session_state.get("permissions", ROLE_PERMISSIONS["admin"])
-
     with st.sidebar:
-        # Session info and logout
-        role_label = st.session_state.get("role", "admin").upper()
-        st.caption(f"👤 **{st.session_state.get('username', 'admin')}** · {role_label}")
-        if st.button("🚪 Logout", use_container_width=True):
-            for key in ["authenticated", "username", "role", "permissions"]:
-                st.session_state.pop(key, None)
-            _stop_pipeline()
-            st.session_state.pipeline_active = False
-            st.rerun()
-
-        st.markdown("---")
         st.header("⚙️ Controls")
 
         source = st.radio(
@@ -340,17 +269,14 @@ def _render_streamlit_app():
             index=0,
         )
 
-        if permissions.get("can_change_threshold", True):
-            threshold = st.slider(
-                "Alert threshold",
-                min_value=0.0,
-                max_value=1.0,
-                value=DEFAULT_THRESHOLD,
-                step=0.05,
-                help="AI probability above this triggers a red warning.",
-            )
-        else:
-            threshold = DEFAULT_THRESHOLD
+        threshold = st.slider(
+            "Alert threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=DEFAULT_THRESHOLD,
+            step=0.05,
+            help="AI probability above this triggers a red warning.",
+        )
 
         smoothing = st.slider(
             "Score smoothing (chunks)",
@@ -380,21 +306,17 @@ def _render_streamlit_app():
             help="Overlap between audio chunks for smoother detection.",
         )
 
-        # Model configuration — admin only
-        model_id = ""
-        model_weights = ""
-        if permissions.get("can_configure_model", False):
-            model_id = st.text_input(
-                "Model IDs (optional)",
-                value="",
-                help="Hugging Face model ID, or comma-separated IDs for an ensemble. Leave blank for default.",
-            )
+        model_id = st.text_input(
+            "Model IDs (optional)",
+            value="",
+            help="Hugging Face model ID, or comma-separated IDs for an ensemble. Leave blank for default.",
+        )
 
-            model_weights = st.text_input(
-                "Model weights (optional)",
-                value="",
-                help="Comma-separated weights matching Model IDs, for example 0.7,0.3.",
-            )
+        model_weights = st.text_input(
+            "Model weights (optional)",
+            value="",
+            help="Comma-separated weights matching Model IDs, for example 0.7,0.3.",
+        )
 
         uploaded_file = None
         if source == "WAV File":
@@ -547,12 +469,10 @@ def _render_streamlit_app():
     else:
         st.info("No scores recorded yet.")
 
-    # ── Detection Event Log (tester/admin) ───────────────────────
-    if permissions.get("can_view_logs", False) and scores:
+    # ── Detection Event Log ───────────────────────────────────────
+    if scores:
         st.markdown("---")
         st.markdown("##### 📋 Detection Event Log")
-
-        import datetime
 
         log_data = []
         for s in reversed(scores[-20:]):
