@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from scipy.signal import resample_poly
 
 TARGET_SAMPLE_RATE = 16000
 
@@ -35,6 +34,12 @@ def _normalize(samples: np.ndarray) -> np.ndarray:
 def _resample(samples: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
     if source_rate == target_rate:
         return samples.astype(np.float32)
+
+    try:
+        from scipy.signal import resample_poly
+    except ImportError as exc:
+        raise RuntimeError("Install scipy to resample audio: pip install scipy") from exc
+
     gcd = np.gcd(source_rate, target_rate)
     up = target_rate // gcd
     down = source_rate // gcd

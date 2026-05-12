@@ -32,10 +32,10 @@ The technology stack is aggressively simplified to ensure compatibility with a 6
 | Frontend / UI | Streamlit |
 | Audio Capture | sounddevice and pyaudio |
 | Upstream Filtering | Silero VAD |
-| AI Detection Engine | Pre-trained Hugging Face audio classification models, Wav2Vec2, or RawNetLite |
+| AI Detection Engine | Pre-trained Hugging Face audio classification models, currently Wav2Vec2-based checkpoints |
 | Data Processing | numpy, scipy, torch, torchaudio |
 
-RawNetLite is highly recommended for this stack because it is a convolutional-recurrent model explicitly tailored for lightweight, real-time execution directly on raw waveforms. This makes it highly competitive for CPU-only evaluation.
+RawNetLite remains a strong future candidate because it is a convolutional-recurrent model explicitly tailored for lightweight, real-time execution directly on raw waveforms. The current repository implementation does not bundle RawNetLite weights or a local RawNetLite architecture; it uses Hugging Face audio-classification checkpoints by default.
 
 ## 3. Team Structure and Responsibilities
 
@@ -69,7 +69,7 @@ To avoid merge conflicts and blocked dependencies within a 6-day sprint, the 6-p
 
 ### Tasks
 
-- Load the pre-trained PyTorch/Hugging Face model, such as RawNetLite or Wav2Vec2, onto the CPU.
+- Load a pre-trained PyTorch/Hugging Face audio-classification model, currently Wav2Vec2-based, onto the CPU.
 - Build the inference pipeline that accepts a 3-second tensor and outputs a scalar probability score from `0.0` to `1.0`.
 
 ### Deliverables
@@ -272,7 +272,7 @@ If the microphone fails, seamlessly fall back to the Streamlit file upload utili
 
 Do not use heavy models.
 
-Use lightweight pre-trained models like RawNetLite, which uses computationally inexpensive 1D convolutions and a GRU tailored specifically for embedded/CPU execution.
+Use lightweight pre-trained audio classifiers. RawNetLite is a future option because it uses computationally inexpensive 1D convolutions and a GRU tailored for embedded/CPU execution, but the implemented path currently relies on Hugging Face audio-classification checkpoints.
 
 ## Risk 3: False Positives or Jumpy UI
 
